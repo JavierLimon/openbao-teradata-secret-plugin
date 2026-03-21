@@ -367,6 +367,9 @@ func TestConfigConnectionStringValidation(t *testing.T) {
 
 func getConfigFieldSchema() map[string]*framework.FieldSchema {
 	return map[string]*framework.FieldSchema{
+		"region": {
+			Type: framework.TypeString,
+		},
 		"connection_string": {
 			Type: framework.TypeString,
 		},
@@ -381,6 +384,30 @@ func getConfigFieldSchema() map[string]*framework.FieldSchema {
 		},
 		"connection_timeout": {
 			Type: framework.TypeInt,
+		},
+		"ssl_mode": {
+			Type: framework.TypeString,
+		},
+		"ssl_cert": {
+			Type: framework.TypeString,
+		},
+		"ssl_key": {
+			Type: framework.TypeString,
+		},
+		"ssl_root_cert": {
+			Type: framework.TypeString,
+		},
+		"ssl_key_password": {
+			Type: framework.TypeString,
+		},
+		"ssl_cipher_suites": {
+			Type: framework.TypeString,
+		},
+		"ssl_secure": {
+			Type: framework.TypeBool,
+		},
+		"ssl_version": {
+			Type: framework.TypeString,
 		},
 	}
 }

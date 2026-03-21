@@ -21,6 +21,14 @@ type DBConfig struct {
 	HealthCheckInterval   time.Duration `json:"health_check_interval"`
 	HealthCheckTimeout    time.Duration `json:"health_check_timeout"`
 	MinConnCheckInterval  time.Duration `json:"min_conn_check_interval"`
+	SSLMode               string        `json:"ssl_mode"`
+	SSLCert               string        `json:"ssl_cert"`
+	SSLKey                string        `json:"ssl_key"`
+	SSLRootCert           string        `json:"ssl_root_cert"`
+	SSLKeyPassword        string        `json:"ssl_key_password"`
+	SSLCipherSuites       string        `json:"ssl_cipher_suites"`
+	SSLSecure             bool          `json:"ssl_secure"`
+	SSLVersion            string        `json:"ssl_version"`
 }
 
 type ConnectionState int

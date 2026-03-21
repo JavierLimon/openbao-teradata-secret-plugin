@@ -9,6 +9,14 @@ type Config struct {
 	ConnectionTimeout  int    `json:"connection_timeout"`
 	Username           string `json:"username"`
 	Password           string `json:"password,omitempty"`
+	SSLMode            string `json:"ssl_mode"`
+	SSLCert            string `json:"ssl_cert"`
+	SSLKey             string `json:"ssl_key"`
+	SSLRootCert        string `json:"ssl_root_cert"`
+	SSLKeyPassword     string `json:"ssl_key_password,omitempty"`
+	SSLCipherSuites    string `json:"ssl_cipher_suites"`
+	SSLSecure          bool   `json:"ssl_secure"`
+	SSLVersion         string `json:"ssl_version"`
 }
 
 type Role struct {
