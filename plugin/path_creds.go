@@ -35,6 +35,31 @@ func (b *Backend) pathCreds() *framework.Path {
 	}
 }
 
+func (b *Backend) pathCredsBatch() *framework.Path {
+	return &framework.Path{
+		Pattern:         "creds/batch/" + framework.GenericNameRegex("name"),
+		HelpSynopsis:    "Generate multiple database credentials",
+		HelpDescription: "Generates multiple dynamic database credentials for the specified role.",
+
+		Fields: map[string]*framework.FieldSchema{
+			"name": {
+				Type:        framework.TypeString,
+				Description: "Name of the role",
+			},
+			"count": {
+				Type:        framework.TypeInt,
+				Description: "Number of credentials to generate (default: 1, max: 100)",
+			},
+		},
+
+		Operations: map[logical.Operation]framework.OperationHandler{
+			logical.ReadOperation: &framework.PathOperation{
+				Callback: b.pathCredsBatchRead,
+			},
+		},
+	}
+}
+
 func (b *Backend) pathCredsRead(ctx context.Context, req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
 	name := data.Get("name").(string)
 
@@ -119,6 +144,127 @@ func (b *Backend) pathCredsRead(ctx context.Context, req *logical.Request, data 
 			"password": password,
 			"ttl":      int(ttl.Seconds()),
 			"max_ttl":  int(maxTTL.Seconds()),
+		},
+	}
+
+	if role.DefaultTTL > 0 {
+		resp.Secret = &logical.Secret{
+			LeaseOptions: logical.LeaseOptions{
+				TTL:    ttl,
+				MaxTTL: maxTTL,
+			},
+		}
+	}
+
+	return resp, nil
+}
+
+func (b *Backend) pathCredsBatchRead(ctx context.Context, req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
+	name := data.Get("name").(string)
+	count := data.Get("count").(int)
+
+	if count <= 0 {
+		count = 1
+	}
+	if count > 100 {
+		count = 100
+	}
+
+	role, err := getRole(ctx, req.Storage, name)
+	if err != nil {
+		return nil, err
+	}
+	if role == nil {
+		return nil, fmt.Errorf("role %q not found", name)
+	}
+
+	if role.UsernamePrefix != "" {
+		if err := teradb.ValidateUsername(role.UsernamePrefix); err != nil {
+			return nil, fmt.Errorf("invalid username_prefix: %w", err)
+		}
+	}
+
+	cfg, err := getConfig(ctx, req.Storage)
+	if err != nil {
+		return nil, err
+	}
+	if cfg == nil {
+		return nil, fmt.Errorf("database configuration not found")
+	}
+
+	creationStatement := role.CreationStatement
+	rollbackStatement := role.RollbackStatement
+
+	if role.StatementTemplate != "" {
+		statement, err := getStatement(ctx, req.Storage, role.StatementTemplate)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load statement template: %w", err)
+		}
+		if statement == nil {
+			return nil, fmt.Errorf("statement template %q not found", role.StatementTemplate)
+		}
+		if statement.CreationStatement != "" {
+			creationStatement = statement.CreationStatement
+		}
+		if statement.RollbackStatement != "" {
+			rollbackStatement = statement.RollbackStatement
+		}
+	}
+
+	credentials := make([]map[string]interface{}, 0, count)
+
+	for i := 0; i < count; i++ {
+		username := generateUsername(role.UsernamePrefix)
+		password := generatePassword()
+
+		if err := teradb.ValidateUsername(username); err != nil {
+			return nil, fmt.Errorf("generated username validation failed: %w", err)
+		}
+
+		createSQL := buildTeradataCreateUserSQL(role, username, password)
+		_, err = executeSQL(ctx, cfg.ConnectionString, createSQL)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create user %s: %w", username, err)
+		}
+
+		if creationStatement != "" {
+			additionalSQL := creationStatement
+			additionalSQL = strings.ReplaceAll(additionalSQL, "{{username}}", username)
+			additionalSQL = strings.ReplaceAll(additionalSQL, "{{password}}", password)
+			_, err = executeSQL(ctx, cfg.ConnectionString, additionalSQL)
+			if err != nil {
+				if rollbackStatement != "" {
+					rollbackSQL := strings.ReplaceAll(rollbackStatement, "{{username}}", username)
+					rollbackSQL = strings.ReplaceAll(rollbackSQL, "{{password}}", password)
+					executeSQL(ctx, cfg.ConnectionString, rollbackSQL)
+				}
+				dropSQL := fmt.Sprintf("DROP USER %s", username)
+				executeSQL(ctx, cfg.ConnectionString, dropSQL)
+				return nil, fmt.Errorf("failed to run creation statement for %s: %w", username, err)
+			}
+		}
+
+		ttl := time.Duration(role.DefaultTTL) * time.Second
+		maxTTL := time.Duration(role.MaxTTL) * time.Second
+
+		cred := map[string]interface{}{
+			"username": username,
+			"password": password,
+			"ttl":      int(ttl.Seconds()),
+			"max_ttl":  int(maxTTL.Seconds()),
+		}
+		credentials = append(credentials, cred)
+	}
+
+	ttl := time.Duration(role.DefaultTTL) * time.Second
+	maxTTL := time.Duration(role.MaxTTL) * time.Second
+
+	resp := &logical.Response{
+		Data: map[string]interface{}{
+			"credentials": credentials,
+			"count":       len(credentials),
+			"ttl":         int(ttl.Seconds()),
+			"max_ttl":     int(maxTTL.Seconds()),
 		},
 	}
 

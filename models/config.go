@@ -26,6 +26,7 @@ type Role struct {
 	SpoolSpace          int64  `json:"spool_space"`
 	Account             string `json:"account"`
 	Fallback            bool   `json:"fallback"`
+	BatchSize           int    `json:"batch_size"`
 }
 
 type Statement struct {
