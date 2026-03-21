@@ -124,6 +124,26 @@ func (b *Backend) pathConfig() *framework.Path {
 				Description: "Maximum number of rows to return from query results (0 = no limit)",
 				Default:     0,
 			},
+			"eviction_policy": {
+				Type:        framework.TypeString,
+				Description: "Connection eviction policy: lifo (newest first) or fifo (oldest first)",
+				Default:     "lifo",
+			},
+			"eviction_batch_size": {
+				Type:        framework.TypeInt,
+				Description: "Number of connections to evict per cleanup cycle",
+				Default:     1,
+			},
+			"eviction_grace_period": {
+				Type:        framework.TypeInt,
+				Description: "Additional grace period before forcing eviction (seconds)",
+				Default:     30,
+			},
+			"min_evictable_idle_time": {
+				Type:        framework.TypeInt,
+				Description: "Minimum idle time before connection becomes evictable (seconds)",
+				Default:     300,
+			},
 		},
 
 		Operations: map[logical.Operation]framework.OperationHandler{
@@ -174,6 +194,10 @@ func (b *Backend) pathConfigWrite(ctx context.Context, req *logical.Request, dat
 	retryMultiplier := data.Get("retry_multiplier").(float64)
 	gracefulDegradationMode := data.Get("graceful_degradation_mode").(bool)
 	maxResultRows := data.Get("max_result_rows").(int)
+	evictionPolicy := data.Get("eviction_policy").(string)
+	evictionBatchSize := data.Get("eviction_batch_size").(int)
+	evictionGracePeriod := data.Get("eviction_grace_period").(int)
+	minEvictableIdleTime := data.Get("min_evictable_idle_time").(int)
 
 	var sessionVariables map[string]string
 	if rawVars, ok := data.Raw["session_variables"].(map[string]interface{}); ok {
@@ -225,6 +249,18 @@ func (b *Backend) pathConfigWrite(ctx context.Context, req *logical.Request, dat
 	if maxResultRows < 0 {
 		return nil, fmt.Errorf("max_result_rows cannot be negative")
 	}
+	if evictionPolicy != "" && evictionPolicy != "lifo" && evictionPolicy != "fifo" {
+		return nil, fmt.Errorf("eviction_policy must be 'lifo' or 'fifo'")
+	}
+	if evictionBatchSize < 0 {
+		return nil, fmt.Errorf("eviction_batch_size cannot be negative")
+	}
+	if evictionGracePeriod < 0 {
+		return nil, fmt.Errorf("eviction_grace_period cannot be negative")
+	}
+	if minEvictableIdleTime < 0 {
+		return nil, fmt.Errorf("min_evictable_idle_time cannot be negative")
+	}
 
 	cfg := &models.Config{
 		Region:                  region,
@@ -250,6 +286,10 @@ func (b *Backend) pathConfigWrite(ctx context.Context, req *logical.Request, dat
 		RetryMultiplier:         retryMultiplier,
 		GracefulDegradationMode: gracefulDegradationMode,
 		MaxResultRows:           maxResultRows,
+		EvictionPolicy:          evictionPolicy,
+		EvictionBatchSize:       evictionBatchSize,
+		EvictionGracePeriod:     evictionGracePeriod,
+		MinEvictableIdleTime:    minEvictableIdleTime,
 	}
 
 	storageKey := "config"
@@ -289,6 +329,10 @@ func (b *Backend) pathConfigWrite(ctx context.Context, req *logical.Request, dat
 		"retry_multiplier":          retryMultiplier,
 		"graceful_degradation_mode": gracefulDegradationMode,
 		"max_result_rows":           maxResultRows,
+		"eviction_policy":           evictionPolicy,
+		"eviction_batch_size":       evictionBatchSize,
+		"eviction_grace_period":     evictionGracePeriod,
+		"min_evictable_idle_time":   minEvictableIdleTime,
 	}
 	if region != "" {
 		respData["region"] = region
@@ -349,6 +393,10 @@ func (b *Backend) pathConfigRead(ctx context.Context, req *logical.Request, data
 		"retry_multiplier":          cfg.RetryMultiplier,
 		"graceful_degradation_mode": cfg.GracefulDegradationMode,
 		"max_result_rows":           cfg.MaxResultRows,
+		"eviction_policy":           cfg.EvictionPolicy,
+		"eviction_batch_size":       cfg.EvictionBatchSize,
+		"eviction_grace_period":     cfg.EvictionGracePeriod,
+		"min_evictable_idle_time":   cfg.MinEvictableIdleTime,
 	}
 	if cfg.Region != "" {
 		respData["region"] = cfg.Region
