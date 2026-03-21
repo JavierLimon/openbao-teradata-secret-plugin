@@ -46,6 +46,11 @@ func (b *Backend) pathConfig() *framework.Path {
 				Description: "Connection timeout in seconds",
 				Default:     30,
 			},
+			"query_timeout": {
+				Type:        framework.TypeInt,
+				Description: "Query timeout in seconds (0 = no timeout)",
+				Default:     0,
+			},
 			"ssl_mode": {
 				Type:        framework.TypeString,
 				Description: "SSL mode: disable, allow, verify-ca, verify-full, require",
@@ -114,6 +119,7 @@ func (b *Backend) pathConfigWrite(ctx context.Context, req *logical.Request, dat
 	maxOpenConnections := data.Get("max_open_connections").(int)
 	maxIdleConnections := data.Get("max_idle_connections").(int)
 	connectionTimeout := data.Get("connection_timeout").(int)
+	queryTimeout := data.Get("query_timeout").(int)
 	sslMode := data.Get("ssl_mode").(string)
 	sslCert := data.Get("ssl_cert").(string)
 	sslKey := data.Get("ssl_key").(string)
@@ -151,6 +157,7 @@ func (b *Backend) pathConfigWrite(ctx context.Context, req *logical.Request, dat
 		MaxOpenConnections: maxOpenConnections,
 		MaxIdleConnections: maxIdleConnections,
 		ConnectionTimeout:  connectionTimeout,
+		QueryTimeout:       queryTimeout,
 		SSLMode:            sslMode,
 		SSLCert:            sslCert,
 		SSLKey:             sslKey,
@@ -183,6 +190,7 @@ func (b *Backend) pathConfigWrite(ctx context.Context, req *logical.Request, dat
 		"max_open_connections": maxOpenConnections,
 		"max_idle_connections": maxIdleConnections,
 		"connection_timeout":   connectionTimeout,
+		"query_timeout":        queryTimeout,
 		"ssl_mode":             sslMode,
 		"ssl_cert":             sslCert,
 		"ssl_key":              sslKey,
@@ -234,6 +242,7 @@ func (b *Backend) pathConfigRead(ctx context.Context, req *logical.Request, data
 		"max_open_connections": cfg.MaxOpenConnections,
 		"max_idle_connections": cfg.MaxIdleConnections,
 		"connection_timeout":   cfg.ConnectionTimeout,
+		"query_timeout":        cfg.QueryTimeout,
 		"ssl_mode":             cfg.SSLMode,
 		"ssl_cert":             cfg.SSLCert,
 		"ssl_key":              cfg.SSLKey,

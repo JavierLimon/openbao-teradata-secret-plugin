@@ -197,7 +197,7 @@ func (b *Backend) pathReadinessRead(ctx context.Context, req *logical.Request, d
 		}, nil
 	}
 
-	conn, err := odbc.Connect(cfg.ConnectionString)
+	conn, err := odbc.Connect(odbc.AppendQueryTimeout(cfg.ConnectionString, cfg.QueryTimeout))
 	if err != nil {
 		return &logical.Response{
 			Data: map[string]interface{}{

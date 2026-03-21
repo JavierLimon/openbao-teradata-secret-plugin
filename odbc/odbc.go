@@ -173,6 +173,16 @@ func BuildConnectionString(baseConnString string, ssl *SSLConfig) string {
 	return baseConnString + ";" + strings.Join(sslParams, ";")
 }
 
+func AppendQueryTimeout(baseConnString string, queryTimeout int) string {
+	if queryTimeout <= 0 {
+		return baseConnString
+	}
+	if strings.TrimSpace(baseConnString) == "" {
+		return fmt.Sprintf("QUERYTIMEOUT=%d", queryTimeout)
+	}
+	return baseConnString + fmt.Sprintf(";QUERYTIMEOUT=%d", queryTimeout)
+}
+
 func Connect(connString string) (*Connection, error) {
 	db, err := sql.Open("odbc", connString)
 	if err != nil {

@@ -60,8 +60,9 @@ func (b *Backend) pathRevokeCredsHandler(ctx context.Context, req *logical.Reque
 	}
 
 	var conn *odbc.Connection
+	connString := odbc.AppendQueryTimeout(cfg.ConnectionString, cfg.QueryTimeout)
 	err = retry.Do(ctx, nil, func() error {
-		conn, err = odbc.Connect(cfg.ConnectionString)
+		conn, err = odbc.Connect(connString)
 		return err
 	})
 	if err != nil {

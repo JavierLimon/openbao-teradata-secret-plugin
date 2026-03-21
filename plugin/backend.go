@@ -212,8 +212,9 @@ func (b *Backend) Revoke(ctx context.Context, leaseID string) error {
 	if role != nil && role.RevocationStatement != "" {
 		revokeSQL = strings.ReplaceAll(role.RevocationStatement, "{{username}}", username)
 		var conn *odbc.Connection
+		connString := odbc.AppendQueryTimeout(cfg.ConnectionString, cfg.QueryTimeout)
 		err = retry.Do(ctx, nil, func() error {
-			conn, err = odbc.Connect(cfg.ConnectionString)
+			conn, err = odbc.Connect(connString)
 			return err
 		})
 		if err == nil {
@@ -226,8 +227,9 @@ func (b *Backend) Revoke(ctx context.Context, leaseID string) error {
 
 	dropSQL := fmt.Sprintf("DROP USER %s", username)
 	var conn *odbc.Connection
+	connString := odbc.AppendQueryTimeout(cfg.ConnectionString, cfg.QueryTimeout)
 	err = retry.Do(ctx, nil, func() error {
-		conn, err = odbc.Connect(cfg.ConnectionString)
+		conn, err = odbc.Connect(connString)
 		return err
 	})
 	if err != nil {
