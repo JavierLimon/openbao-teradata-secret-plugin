@@ -147,7 +147,24 @@ func executeSQL(ctx context.Context, connString, sql string) (interface{}, error
 	}
 	defer conn.Close()
 
-	// TODO: Execute SQL using cgo ODBC
-	// For now, just test connection
+	err = conn.ExecuteMultipleStatements(sql)
+	if err != nil {
+		return nil, err
+	}
+
 	return nil, nil
+}
+
+func executeGrantStatements(ctx context.Context, connString, grantStatements string) error {
+	if strings.TrimSpace(grantStatements) == "" {
+		return nil
+	}
+
+	conn, err := teradb.Connect(connString)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+
+	return conn.ExecuteGrantStatements(grantStatements)
 }
