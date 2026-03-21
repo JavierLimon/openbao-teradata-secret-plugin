@@ -26,6 +26,11 @@ func (b *Backend) pathConfig() *framework.Path {
 				Description: "ODBC connection string for Teradata",
 				Required:    true,
 			},
+			"min_connections": {
+				Type:        framework.TypeInt,
+				Description: "Minimum number of connections to maintain",
+				Default:     0,
+			},
 			"max_open_connections": {
 				Type:        framework.TypeInt,
 				Description: "Maximum number of open connections",
@@ -71,6 +76,7 @@ func (b *Backend) pathConfigWrite(ctx context.Context, req *logical.Request, dat
 		return nil, fmt.Errorf("invalid connection string: %w", err)
 	}
 
+	minConnections := data.Get("min_connections").(int)
 	maxOpenConnections := data.Get("max_open_connections").(int)
 	maxIdleConnections := data.Get("max_idle_connections").(int)
 	connectionTimeout := data.Get("connection_timeout").(int)
@@ -78,6 +84,7 @@ func (b *Backend) pathConfigWrite(ctx context.Context, req *logical.Request, dat
 	cfg := &models.Config{
 		Region:             region,
 		ConnectionString:   connectionString,
+		MinConnections:     minConnections,
 		MaxOpenConnections: maxOpenConnections,
 		MaxIdleConnections: maxIdleConnections,
 		ConnectionTimeout:  connectionTimeout,
@@ -99,6 +106,7 @@ func (b *Backend) pathConfigWrite(ctx context.Context, req *logical.Request, dat
 
 	respData := map[string]interface{}{
 		"connection_string":    "***",
+		"min_connections":      minConnections,
 		"max_open_connections": maxOpenConnections,
 		"max_idle_connections": maxIdleConnections,
 		"connection_timeout":   connectionTimeout,
@@ -139,6 +147,7 @@ func (b *Backend) pathConfigRead(ctx context.Context, req *logical.Request, data
 
 	respData := map[string]interface{}{
 		"connection_string":    "***",
+		"min_connections":      cfg.MinConnections,
 		"max_open_connections": cfg.MaxOpenConnections,
 		"max_idle_connections": cfg.MaxIdleConnections,
 		"connection_timeout":   cfg.ConnectionTimeout,
