@@ -103,6 +103,11 @@ func (b *Backend) pathRoles() *framework.Path {
 				Description: "Maximum number of credentials allowed for this role (0 = unlimited)",
 				Default:     0,
 			},
+			"batch_size": {
+				Type:        framework.TypeInt,
+				Description: "Default batch size for batch credential operations (1-100, 0 = use count parameter)",
+				Default:     0,
+			},
 		},
 
 		Operations: map[logical.Operation]framework.OperationHandler{
@@ -177,6 +182,7 @@ func (b *Backend) pathRoleCreate(ctx context.Context, req *logical.Request, data
 		RollbackStatement:   rollbackStatement,
 		RenewalStatement:    renewalStatement,
 		MaxCredentials:      data.Get("max_credentials").(int),
+		BatchSize:           data.Get("batch_size").(int),
 	}
 
 	entry, err := logical.StorageEntryJSON("roles/"+name, role)
@@ -204,6 +210,7 @@ func (b *Backend) pathRoleCreate(ctx context.Context, req *logical.Request, data
 			"creation_statement":   "***",
 			"revocation_statement": "***",
 			"max_credentials":      role.MaxCredentials,
+			"batch_size":           role.BatchSize,
 		},
 	}, nil
 }
@@ -249,6 +256,7 @@ func (b *Backend) pathRoleRead(ctx context.Context, req *logical.Request, data *
 		"rollback_statement":   role.RollbackStatement,
 		"renewal_statement":    role.RenewalStatement,
 		"max_credentials":      role.MaxCredentials,
+		"batch_size":           role.BatchSize,
 	}
 
 	if role.DBPassword != "" {
@@ -293,6 +301,7 @@ func (b *Backend) pathRoleUpdate(ctx context.Context, req *logical.Request, data
 		RollbackStatement:   rollbackStatement,
 		RenewalStatement:    renewalStatement,
 		MaxCredentials:      data.Get("max_credentials").(int),
+		BatchSize:           data.Get("batch_size").(int),
 	}
 
 	if existingRole != nil {

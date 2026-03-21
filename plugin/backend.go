@@ -132,6 +132,7 @@ func (b *Backend) paths() []*framework.Path {
 		b.pathCredsV1(),
 		b.pathCredsBatch(),
 		b.pathRenewCreds(),
+		b.pathRenewCredsBatch(),
 		b.pathRevokeCreds(),
 		b.pathLeases(),
 		b.pathLeaseInfo(),
