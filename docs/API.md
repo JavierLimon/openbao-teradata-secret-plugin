@@ -9,6 +9,8 @@ This document provides a complete API reference for the Teradata Secret Plugin.
 - [Configuration](#configuration)
 - [Roles](#roles)
 - [Credentials](#credentials)
+- [Revoke Credentials](#revoke-credentials)
+- [Renew Credentials](#renew-credentials)
 - [Rotate Root](#rotate-root)
 - [System Endpoints](#system-endpoints)
 - [Error Responses](#error-responses)
@@ -70,6 +72,18 @@ All requests require a valid OpenBao token with appropriate policies.
 }
 ```
 
+**curl Example:**
+```bash
+curl -X POST http://127.0.0.1:8200/v1/teradata/config \
+  -H "X-Vault-Token: your-vault-token" \
+  -d '{
+    "connection_string": "DSN=MyTeradata;UID=admin;PWD=password",
+    "max_open_connections": 5,
+    "max_idle_connections": 2,
+    "connection_timeout": 30
+  }'
+```
+
 ---
 
 ### Read Configuration
@@ -79,6 +93,12 @@ All requests require a valid OpenBao token with appropriate policies.
 | **Endpoint** | `GET /teradata/config` |
 | **Description** | Retrieves the current configuration |
 
+**curl Example:**
+```bash
+curl -X GET http://127.0.0.1:8200/v1/teradata/config \
+  -H "X-Vault-Token: your-vault-token"
+```
+
 ---
 
 ### Delete Configuration
@@ -87,6 +107,12 @@ All requests require a valid OpenBao token with appropriate policies.
 |-----------|-------|
 | **Endpoint** | `DELETE /teradata/config` |
 | **Description** | Removes the configuration |
+
+**curl Example:**
+```bash
+curl -X DELETE http://127.0.0.1:8200/v1/teradata/config \
+  -H "X-Vault-Token: your-vault-token"
+```
 
 ---
 
@@ -129,6 +155,22 @@ All requests require a valid OpenBao token with appropriate policies.
 }
 ```
 
+**curl Example:**
+```bash
+curl -X POST http://127.0.0.1:8200/v1/teradata/roles/readonly \
+  -H "X-Vault-Token: your-vault-token" \
+  -d '{
+    "db_user": "vault_user",
+    "default_ttl": 3600,
+    "max_ttl": 86400,
+    "default_database": "mydb",
+    "perm_space": 1000000000,
+    "spool_space": 500000000,
+    "fallback": true,
+    "creation_statement": "GRANT SELECT ON mydb TO {{username}};"
+  }'
+```
+
 ---
 
 ### Read Role
@@ -137,6 +179,12 @@ All requests require a valid OpenBao token with appropriate policies.
 |-----------|-------|
 | **Endpoint** | `GET /teradata/roles/:name` |
 | **Description** | Retrieves role configuration |
+
+**curl Example:**
+```bash
+curl -X GET http://127.0.0.1:8200/v1/teradata/roles/readonly \
+  -H "X-Vault-Token: your-vault-token"
+```
 
 ---
 
@@ -156,6 +204,12 @@ All requests require a valid OpenBao token with appropriate policies.
 }
 ```
 
+**curl Example:**
+```bash
+curl -X LIST http://127.0.0.1:8200/v1/teradata/roles \
+  -H "X-Vault-Token: your-vault-token"
+```
+
 ---
 
 ### Delete Role
@@ -164,6 +218,12 @@ All requests require a valid OpenBao token with appropriate policies.
 |-----------|-------|
 | **Endpoint** | `DELETE /teradata/roles/:name` |
 | **Description** | Deletes the specified role |
+
+**curl Example:**
+```bash
+curl -X DELETE http://127.0.0.1:8200/v1/teradata/roles/readonly \
+  -H "X-Vault-Token: your-vault-token"
+```
 
 ---
 
@@ -188,6 +248,69 @@ All requests require a valid OpenBao token with appropriate policies.
 }
 ```
 
+**curl Example:**
+```bash
+curl -X GET http://127.0.0.1:8200/v1/teradata/creds/readonly \
+  -H "X-Vault-Token: your-vault-token"
+```
+
+---
+
+## Revoke Credentials
+
+### Revoke Credentials
+
+| Attribute | Value |
+|-----------|-------|
+| **Endpoint** | `DELETE /teradata/revoke-cred/:username` |
+| **Description** | Revokes and deletes dynamically generated database credentials |
+
+**Example Response:**
+```json
+{
+  "data": {
+    "revoked": true
+  }
+}
+```
+
+**curl Example:**
+```bash
+curl -X DELETE http://127.0.0.1:8200/v1/teradata/revoke-cred/vault_user_a1b2c3d4 \
+  -H "X-Vault-Token: your-vault-token"
+```
+
+---
+
+## Renew Credentials
+
+### Renew Credentials
+
+| Attribute | Value |
+|-----------|-------|
+| **Endpoint** | `POST /teradata/renew-cred/:username` |
+| **Description** | Rotates the password for dynamically generated database credentials |
+
+**Example Response:**
+```json
+{
+  "data": {
+    "username": "vault_user_a1b2c3d4",
+    "password": "NewSecureP@ss123!",
+    "ttl": 3600,
+    "max_ttl": 86400,
+    "last_renewed": 1699999999,
+    "expires_at": 1700003599
+  }
+}
+```
+
+**curl Example:**
+```bash
+curl -X POST http://127.0.0.1:8200/v1/teradata/renew-cred/vault_user_a1b2c3d4 \
+  -H "X-Vault-Token: your-vault-token"
+```
+
 ---
 
 ## Rotate Root
@@ -206,6 +329,12 @@ All requests require a valid OpenBao token with appropriate policies.
     "rotated": true
   }
 }
+```
+
+**curl Example:**
+```bash
+curl -X POST http://127.0.0.1:8200/v1/teradata/rotate-root \
+  -H "X-Vault-Token: your-vault-token"
 ```
 
 ---
@@ -229,6 +358,12 @@ All requests require a valid OpenBao token with appropriate policies.
 }
 ```
 
+**curl Example:**
+```bash
+curl -X GET http://127.0.0.1:8200/v1/teradata/health \
+  -H "X-Vault-Token: your-vault-token"
+```
+
 ---
 
 ### Version
@@ -245,6 +380,12 @@ All requests require a valid OpenBao token with appropriate policies.
     "version": "0.1.0"
   }
 }
+```
+
+**curl Example:**
+```bash
+curl -X GET http://127.0.0.1:8200/v1/teradata/version \
+  -H "X-Vault-Token: your-vault-token"
 ```
 
 ---
