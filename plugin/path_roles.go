@@ -21,6 +21,10 @@ func (b *Backend) pathRoles() *framework.Path {
 				Type:        framework.TypeString,
 				Description: "Name of the role",
 			},
+			"version": {
+				Type:        framework.TypeInt,
+				Description: "Role schema version",
+			},
 			"db_user": {
 				Type:        framework.TypeString,
 				Description: "Database username template (use {{username}} placeholder)",
@@ -148,6 +152,7 @@ func (b *Backend) pathRoleCreate(ctx context.Context, req *logical.Request, data
 
 	role := &models.Role{
 		Name:                name,
+		Version:             models.RoleVersion,
 		DBUser:              data.Get("db_user").(string),
 		DBPassword:          data.Get("db_password").(string),
 		DefaultTTL:          data.Get("default_ttl").(int),
@@ -190,22 +195,34 @@ func (b *Backend) pathRoleCreate(ctx context.Context, req *logical.Request, data
 func (b *Backend) pathRoleRead(ctx context.Context, req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
 	name := data.Get("name").(string)
 
-	entry, err := req.Storage.Get(ctx, "roles/"+name)
+	role, err := getRole(ctx, req.Storage, name)
 	if err != nil {
 		return nil, err
 	}
 
-	if entry == nil {
+	if role == nil {
 		return nil, nil
 	}
 
-	var role models.Role
-	if err := entry.DecodeJSON(&role); err != nil {
+	migrated, err := migrateRole(ctx, req.Storage, role)
+	if err != nil {
 		return nil, err
+	}
+
+	if migrated.Version != role.Version {
+		entry, err := logical.StorageEntryJSON("roles/"+name, migrated)
+		if err != nil {
+			return nil, err
+		}
+		if err := req.Storage.Put(ctx, entry); err != nil {
+			return nil, err
+		}
+		role = migrated
 	}
 
 	resp := map[string]interface{}{
 		"name":                 role.Name,
+		"version":              role.Version,
 		"db_user":              role.DBUser,
 		"default_ttl":          role.DefaultTTL,
 		"max_ttl":              role.MaxTTL,
@@ -230,8 +247,14 @@ func (b *Backend) pathRoleRead(ctx context.Context, req *logical.Request, data *
 func (b *Backend) pathRoleUpdate(ctx context.Context, req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
 	name := data.Get("name").(string)
 
+	existingRole, err := getRole(ctx, req.Storage, name)
+	if err != nil {
+		return nil, err
+	}
+
 	role := &models.Role{
 		Name:                name,
+		Version:             models.RoleVersion,
 		DBUser:              data.Get("db_user").(string),
 		DBPassword:          data.Get("db_password").(string),
 		DefaultTTL:          data.Get("default_ttl").(int),
@@ -243,6 +266,16 @@ func (b *Backend) pathRoleUpdate(ctx context.Context, req *logical.Request, data
 		RollbackStatement:   data.Get("rollback_statement").(string),
 		RenewalStatement:    data.Get("renewal_statement").(string),
 		MaxCredentials:      data.Get("max_credentials").(int),
+	}
+
+	if existingRole != nil {
+		role.UsernamePrefix = existingRole.UsernamePrefix
+		role.DefaultDatabase = existingRole.DefaultDatabase
+		role.PermSpace = existingRole.PermSpace
+		role.SpoolSpace = existingRole.SpoolSpace
+		role.Account = existingRole.Account
+		role.Fallback = existingRole.Fallback
+		role.BatchSize = existingRole.BatchSize
 	}
 
 	entry, err := logical.StorageEntryJSON("roles/"+name, role)
@@ -305,5 +338,10 @@ func getRole(ctx context.Context, storage logical.Storage, name string) (*models
 		return nil, err
 	}
 
-	return &role, nil
+	migratedRole, err := migrateRole(ctx, storage, &role)
+	if err != nil {
+		return nil, err
+	}
+
+	return migratedRole, nil
 }
