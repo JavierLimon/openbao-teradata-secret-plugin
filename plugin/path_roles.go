@@ -103,10 +103,9 @@ func (b *Backend) pathRoles() *framework.Path {
 				Description: "Maximum number of credentials allowed for this role (0 = unlimited)",
 				Default:     0,
 			},
-			"batch_size": {
-				Type:        framework.TypeInt,
-				Description: "Default batch size for batch credential operations (1-100, 0 = use count parameter)",
-				Default:     0,
+			"session_variables": {
+				Type:        framework.TypeMap,
+				Description: "Session variables to set for user sessions (map of key-value pairs)",
 			},
 		},
 
@@ -168,6 +167,20 @@ func (b *Backend) pathRoleCreate(ctx context.Context, req *logical.Request, data
 		return nil, fmt.Errorf("SQL statement validation failed: %w", err)
 	}
 
+	var sessionVariables map[string]string
+	if rawVars, ok := data.Raw["session_variables"].(map[string]interface{}); ok {
+		sessionVariables = make(map[string]string)
+		for k, v := range rawVars {
+			if strVal, ok := v.(string); ok {
+				sessionVariables[k] = strVal
+			}
+		}
+	}
+
+	if err := security.ValidateSessionVariables(sessionVariables); err != nil {
+		return nil, fmt.Errorf("invalid session_variables: %w", err)
+	}
+
 	role := &models.Role{
 		Name:                name,
 		Version:             models.RoleVersion,
@@ -182,7 +195,7 @@ func (b *Backend) pathRoleCreate(ctx context.Context, req *logical.Request, data
 		RollbackStatement:   rollbackStatement,
 		RenewalStatement:    renewalStatement,
 		MaxCredentials:      data.Get("max_credentials").(int),
-		BatchSize:           data.Get("batch_size").(int),
+		SessionVariables:    sessionVariables,
 	}
 
 	entry, err := logical.StorageEntryJSON("roles/"+name, role)
@@ -210,7 +223,6 @@ func (b *Backend) pathRoleCreate(ctx context.Context, req *logical.Request, data
 			"creation_statement":   "***",
 			"revocation_statement": "***",
 			"max_credentials":      role.MaxCredentials,
-			"batch_size":           role.BatchSize,
 		},
 	}, nil
 }
@@ -256,7 +268,7 @@ func (b *Backend) pathRoleRead(ctx context.Context, req *logical.Request, data *
 		"rollback_statement":   role.RollbackStatement,
 		"renewal_statement":    role.RenewalStatement,
 		"max_credentials":      role.MaxCredentials,
-		"batch_size":           role.BatchSize,
+		"session_variables":    role.SessionVariables,
 	}
 
 	if role.DBPassword != "" {
@@ -287,6 +299,20 @@ func (b *Backend) pathRoleUpdate(ctx context.Context, req *logical.Request, data
 		return nil, fmt.Errorf("SQL statement validation failed: %w", err)
 	}
 
+	var sessionVariables map[string]string
+	if rawVars, ok := data.Raw["session_variables"].(map[string]interface{}); ok {
+		sessionVariables = make(map[string]string)
+		for k, v := range rawVars {
+			if strVal, ok := v.(string); ok {
+				sessionVariables[k] = strVal
+			}
+		}
+	}
+
+	if err := security.ValidateSessionVariables(sessionVariables); err != nil {
+		return nil, fmt.Errorf("invalid session_variables: %w", err)
+	}
+
 	role := &models.Role{
 		Name:                name,
 		Version:             models.RoleVersion,
@@ -301,7 +327,7 @@ func (b *Backend) pathRoleUpdate(ctx context.Context, req *logical.Request, data
 		RollbackStatement:   rollbackStatement,
 		RenewalStatement:    renewalStatement,
 		MaxCredentials:      data.Get("max_credentials").(int),
-		BatchSize:           data.Get("batch_size").(int),
+		SessionVariables:    sessionVariables,
 	}
 
 	if existingRole != nil {
@@ -312,6 +338,9 @@ func (b *Backend) pathRoleUpdate(ctx context.Context, req *logical.Request, data
 		role.Account = existingRole.Account
 		role.Fallback = existingRole.Fallback
 		role.BatchSize = existingRole.BatchSize
+		if role.SessionVariables == nil {
+			role.SessionVariables = existingRole.SessionVariables
+		}
 	}
 
 	entry, err := logical.StorageEntryJSON("roles/"+name, role)

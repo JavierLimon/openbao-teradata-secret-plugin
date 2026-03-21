@@ -17,11 +17,16 @@ var (
 	ErrCommentDetected     = errors.New("SQL comments not allowed")
 	ErrInvalidPassword     = errors.New("password contains invalid characters")
 	ErrPasswordTooLong     = errors.New("password exceeds maximum length")
+	ErrInvalidSessionVar   = errors.New("invalid session variable")
+	ErrSessionVarTooLong   = errors.New("session variable value exceeds maximum length")
 )
 
 const (
-	MaxStatementLength = 10000
-	MaxPasswordLength  = 256
+	MaxStatementLength    = 10000
+	MaxPasswordLength     = 256
+	MaxSessionVarNameLen  = 128
+	MaxSessionVarValueLen = 1024
+	MaxSessionVars        = 50
 )
 
 var sqlInjectionPatterns = []string{
@@ -270,6 +275,60 @@ func ValidateStatementTemplates(creation, revocation, rollback, renewal string) 
 	if renewal != "" {
 		if err := ValidateSQLStatement(renewal); err != nil {
 			return fmt.Errorf("renewal_statement validation failed: %w", err)
+		}
+	}
+
+	return nil
+}
+
+func ValidateSessionVariables(vars map[string]string) error {
+	if len(vars) > MaxSessionVars {
+		return fmt.Errorf("%w: maximum %d variables allowed", ErrInvalidSessionVar, MaxSessionVars)
+	}
+
+	validNameChars := "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_"
+	dangerousPatterns := []string{"--", "/*", "*/", ";", "'", "\"", "\\", "\x00", "0x", "char(", "nchar(", "varchar("}
+
+	for name, value := range vars {
+		if len(name) > MaxSessionVarNameLen {
+			return fmt.Errorf("%w: name '%s' exceeds maximum length %d", ErrSessionVarTooLong, name, MaxSessionVarNameLen)
+		}
+
+		if len(value) > MaxSessionVarValueLen {
+			return fmt.Errorf("%w: value for '%s' exceeds maximum length %d", ErrSessionVarTooLong, name, MaxSessionVarValueLen)
+		}
+
+		for _, c := range name {
+			if !strings.ContainsRune(validNameChars, c) {
+				return fmt.Errorf("%w: name '%s' contains invalid character '%c'", ErrInvalidSessionVar, name, c)
+			}
+		}
+
+		upperValue := strings.ToUpper(value)
+		for _, pattern := range dangerousPatterns {
+			if strings.Contains(upperValue, pattern) {
+				return fmt.Errorf("%w: value for '%s' contains dangerous pattern '%s'", ErrDangerousPattern, name, pattern)
+			}
+		}
+
+		dangerousKeywords := []string{"SELECT", "INSERT", "UPDATE", "DELETE", "DROP", "CREATE", "ALTER", "GRANT", "REVOKE", "EXEC", "EXECUTE"}
+		for _, keyword := range dangerousKeywords {
+			if strings.Contains(upperValue, keyword) {
+				idx := strings.Index(upperValue, keyword)
+				before := ""
+				if idx > 0 {
+					before = string(upperValue[idx-1])
+				}
+				after := ""
+				if idx+len(keyword) < len(upperValue) {
+					after = string(upperValue[idx+len(keyword)])
+				}
+				isWordBoundary := (before == "" || !unicode.IsLetter([]rune(before)[0])) &&
+					(after == "" || (!unicode.IsLetter([]rune(after)[0]) && after != "_" && after != "("))
+				if isWordBoundary {
+					return fmt.Errorf("%w: value for '%s' contains SQL keyword '%s'", ErrDangerousPattern, name, keyword)
+				}
+			}
 		}
 	}
 

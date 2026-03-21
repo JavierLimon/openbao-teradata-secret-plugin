@@ -232,13 +232,16 @@ func (b *Backend) pathCredsRead(ctx context.Context, req *logical.Request, data 
 	}
 	b.cacheCredential(username, cred)
 
+	sessionVariables := mergeSessionVariables(cfg.SessionVariables, role.SessionVariables)
+
 	resp := &logical.Response{
 		Data: map[string]interface{}{
-			"username": username,
-			"password": password,
-			"ttl":      int(ttl.Seconds()),
-			"max_ttl":  int(maxTTL.Seconds()),
-			"lease_id": leaseID,
+			"username":          username,
+			"password":          password,
+			"ttl":               int(ttl.Seconds()),
+			"max_ttl":           int(maxTTL.Seconds()),
+			"lease_id":          leaseID,
+			"session_variables": sessionVariables,
 		},
 	}
 
@@ -404,12 +407,15 @@ func (b *Backend) pathCredsBatchRead(ctx context.Context, req *logical.Request, 
 	ttl := time.Duration(role.DefaultTTL) * time.Second
 	maxTTL := time.Duration(role.MaxTTL) * time.Second
 
+	sessionVariables := mergeSessionVariables(cfg.SessionVariables, role.SessionVariables)
+
 	resp := &logical.Response{
 		Data: map[string]interface{}{
-			"credentials": credentials,
-			"count":       len(credentials),
-			"ttl":         int(ttl.Seconds()),
-			"max_ttl":     int(maxTTL.Seconds()),
+			"credentials":       credentials,
+			"count":             len(credentials),
+			"ttl":               int(ttl.Seconds()),
+			"max_ttl":           int(maxTTL.Seconds()),
+			"session_variables": sessionVariables,
 		},
 	}
 
@@ -754,4 +760,42 @@ func (b *Backend) cleanupExpiredCredentials(ctx context.Context, storage logical
 	}
 
 	return cleaned, nil
+}
+
+func mergeSessionVariables(configVars, roleVars map[string]string) map[string]string {
+	result := make(map[string]string)
+
+	for k, v := range configVars {
+		result[k] = v
+	}
+
+	for k, v := range roleVars {
+		result[k] = v
+	}
+
+	return result
+}
+
+func buildSessionVariableSQL(vars map[string]string) []string {
+	statements := make([]string, 0, len(vars))
+	for name, value := range vars {
+		stmt := fmt.Sprintf("SET %s = %s", name, value)
+		statements = append(statements, stmt)
+	}
+	return statements
+}
+
+func executeSessionVariables(ctx context.Context, cfg *models.Config, username, password string, sessionVars map[string]string) error {
+	if len(sessionVars) == 0 {
+		return nil
+	}
+
+	statements := buildSessionVariableSQL(sessionVars)
+	for _, stmt := range statements {
+		_, err := executeSQL(ctx, cfg, stmt)
+		if err != nil {
+			return fmt.Errorf("failed to execute session variable %q: %w", stmt, err)
+		}
+	}
+	return nil
 }
