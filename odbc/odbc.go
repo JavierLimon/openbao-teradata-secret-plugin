@@ -44,6 +44,92 @@ type SSLConfig struct {
 	Version      string
 }
 
+type TeradataConnectionConfig struct {
+	DSN               string
+	Server            string
+	Servers           string
+	Port              int
+	Database          string
+	Username          string
+	Password          string
+	ConnectionTimeout int
+	QueryTimeout      int
+	SessionMode       string
+	Account           string
+	SSLMode           string
+	SSLCert           string
+	SSLKey            string
+	SSLRootCert       string
+	SSLKeyPassword    string
+	SSLCipherSuites   string
+	SSLSecure         bool
+	SSLVersion        string
+}
+
+func BuildTeradataConnectionString(cfg TeradataConnectionConfig) string {
+	var params []string
+
+	if cfg.DSN != "" {
+		params = append(params, fmt.Sprintf("DSN=%s", cfg.DSN))
+	}
+	if cfg.Server != "" {
+		params = append(params, fmt.Sprintf("SERVER=%s", cfg.Server))
+	}
+	if cfg.Servers != "" {
+		params = append(params, fmt.Sprintf("SERVERS=%s", cfg.Servers))
+	}
+	if cfg.Port > 0 {
+		params = append(params, fmt.Sprintf("PORT=%d", cfg.Port))
+	}
+	if cfg.Database != "" {
+		params = append(params, fmt.Sprintf("DATABASE=%s", cfg.Database))
+	}
+	if cfg.Username != "" {
+		params = append(params, fmt.Sprintf("UID=%s", cfg.Username))
+	}
+	if cfg.Password != "" {
+		params = append(params, fmt.Sprintf("PWD=%s", cfg.Password))
+	}
+	if cfg.ConnectionTimeout > 0 {
+		params = append(params, fmt.Sprintf("CONNTIMEOUT=%d", cfg.ConnectionTimeout))
+	}
+	if cfg.QueryTimeout > 0 {
+		params = append(params, fmt.Sprintf("QUERYTIMEOUT=%d", cfg.QueryTimeout))
+	}
+	if cfg.SessionMode != "" {
+		params = append(params, fmt.Sprintf("SESSIONMODE=%s", cfg.SessionMode))
+	}
+	if cfg.Account != "" {
+		params = append(params, fmt.Sprintf("ACCOUNT=%s", cfg.Account))
+	}
+	if cfg.SSLMode != "" {
+		params = append(params, fmt.Sprintf("SSLMODE=%s", cfg.SSLMode))
+	}
+	if cfg.SSLSecure {
+		params = append(params, "SSL=1")
+	}
+	if cfg.SSLCert != "" {
+		params = append(params, fmt.Sprintf("SSLCERT=%s", cfg.SSLCert))
+	}
+	if cfg.SSLKey != "" {
+		params = append(params, fmt.Sprintf("SSLKEY=%s", cfg.SSLKey))
+	}
+	if cfg.SSLRootCert != "" {
+		params = append(params, fmt.Sprintf("SSLROOTCERT=%s", cfg.SSLRootCert))
+	}
+	if cfg.SSLKeyPassword != "" {
+		params = append(params, fmt.Sprintf("SSLKEYPASSWORD=%s", cfg.SSLKeyPassword))
+	}
+	if cfg.SSLCipherSuites != "" {
+		params = append(params, fmt.Sprintf("SSLCIPHERSUITE=%s", cfg.SSLCipherSuites))
+	}
+	if cfg.SSLVersion != "" {
+		params = append(params, fmt.Sprintf("SSLVERSION=%s", cfg.SSLVersion))
+	}
+
+	return strings.Join(params, ";")
+}
+
 func BuildConnectionString(baseConnString string, ssl *SSLConfig) string {
 	if ssl == nil {
 		return baseConnString
