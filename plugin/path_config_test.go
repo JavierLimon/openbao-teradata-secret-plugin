@@ -448,19 +448,6 @@ func getConfigFieldSchema() map[string]*framework.FieldSchema {
 		"ssl_version": {
 			Type: framework.TypeString,
 		},
-		"max_retries": {
-			Type: framework.TypeInt,
-		},
-		"initial_retry_interval": {
-			Type: framework.TypeInt,
-		},
-		"max_retry_interval": {
-			Type: framework.TypeInt,
-		},
-		"retry_multiplier": {
-			Type:    framework.TypeFloat,
-			Default: 2.0,
-		},
 		"session_variables": {
 			Type: framework.TypeMap,
 		},
