@@ -1,0 +1,9 @@
+bin/
+*.test
+coverage.out
+coverage.html
+.git/
+.gitignore
+.vscode/
+*.md
+!README.md
