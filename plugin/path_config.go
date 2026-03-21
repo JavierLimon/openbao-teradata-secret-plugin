@@ -119,6 +119,11 @@ func (b *Backend) pathConfig() *framework.Path {
 				Description: "Enable graceful degradation mode to continue operating when database is unavailable",
 				Default:     false,
 			},
+			"max_result_rows": {
+				Type:        framework.TypeInt,
+				Description: "Maximum number of rows to return from query results (0 = no limit)",
+				Default:     0,
+			},
 		},
 
 		Operations: map[logical.Operation]framework.OperationHandler{
@@ -168,6 +173,7 @@ func (b *Backend) pathConfigWrite(ctx context.Context, req *logical.Request, dat
 	maxRetryInterval := data.Get("max_retry_interval").(int)
 	retryMultiplier := data.Get("retry_multiplier").(float64)
 	gracefulDegradationMode := data.Get("graceful_degradation_mode").(bool)
+	maxResultRows := data.Get("max_result_rows").(int)
 
 	var sessionVariables map[string]string
 	if rawVars, ok := data.Raw["session_variables"].(map[string]interface{}); ok {
@@ -216,6 +222,9 @@ func (b *Backend) pathConfigWrite(ctx context.Context, req *logical.Request, dat
 	if retryMultiplier < 0 {
 		return nil, fmt.Errorf("retry_multiplier cannot be negative")
 	}
+	if maxResultRows < 0 {
+		return nil, fmt.Errorf("max_result_rows cannot be negative")
+	}
 
 	cfg := &models.Config{
 		Region:                  region,
@@ -240,6 +249,7 @@ func (b *Backend) pathConfigWrite(ctx context.Context, req *logical.Request, dat
 		MaxRetryInterval:        maxRetryInterval,
 		RetryMultiplier:         retryMultiplier,
 		GracefulDegradationMode: gracefulDegradationMode,
+		MaxResultRows:           maxResultRows,
 	}
 
 	storageKey := "config"
@@ -278,6 +288,7 @@ func (b *Backend) pathConfigWrite(ctx context.Context, req *logical.Request, dat
 		"max_retry_interval":        maxRetryInterval,
 		"retry_multiplier":          retryMultiplier,
 		"graceful_degradation_mode": gracefulDegradationMode,
+		"max_result_rows":           maxResultRows,
 	}
 	if region != "" {
 		respData["region"] = region
@@ -337,6 +348,7 @@ func (b *Backend) pathConfigRead(ctx context.Context, req *logical.Request, data
 		"max_retry_interval":        cfg.MaxRetryInterval,
 		"retry_multiplier":          cfg.RetryMultiplier,
 		"graceful_degradation_mode": cfg.GracefulDegradationMode,
+		"max_result_rows":           cfg.MaxResultRows,
 	}
 	if cfg.Region != "" {
 		respData["region"] = cfg.Region

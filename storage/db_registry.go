@@ -37,6 +37,7 @@ type DBConfig struct {
 	InitialRetryInterval  time.Duration `json:"initial_retry_interval"`
 	MaxRetryInterval      time.Duration `json:"max_retry_interval"`
 	RetryMultiplier       float64       `json:"retry_multiplier"`
+	MaxResultRows         int           `json:"max_result_rows"`
 }
 
 type ConnectionState int

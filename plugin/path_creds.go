@@ -617,6 +617,10 @@ func executeSQL(ctx context.Context, cfg *models.Config, sql string) (interface{
 		}
 		defer conn.Close()
 
+		if cfg.MaxResultRows > 0 {
+			conn.SetMaxResultRows(cfg.MaxResultRows)
+		}
+
 		execErr := conn.ExecuteMultipleStatements(ctx, sql)
 		if execErr != nil {
 			return execErr
