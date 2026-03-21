@@ -90,6 +90,10 @@ func (b *Backend) pathConfig() *framework.Path {
 				Type:        framework.TypeString,
 				Description: "SSL/TLS version (TLS 1.2, TLS 1.3)",
 			},
+			"session_variables": {
+				Type:        framework.TypeMap,
+				Description: "Session variables to set for connections (map of key-value pairs)",
+			},
 		},
 
 		Operations: map[logical.Operation]framework.OperationHandler{
@@ -135,6 +139,20 @@ func (b *Backend) pathConfigWrite(ctx context.Context, req *logical.Request, dat
 	sslSecure := data.Get("ssl_secure").(bool)
 	sslVersion := data.Get("ssl_version").(string)
 
+	var sessionVariables map[string]string
+	if rawVars, ok := data.Raw["session_variables"].(map[string]interface{}); ok {
+		sessionVariables = make(map[string]string)
+		for k, v := range rawVars {
+			if strVal, ok := v.(string); ok {
+				sessionVariables[k] = strVal
+			}
+		}
+	}
+
+	if err := security.ValidateSessionVariables(sessionVariables); err != nil {
+		return nil, fmt.Errorf("invalid session_variables: %w", err)
+	}
+
 	if minConnections < 0 {
 		return nil, fmt.Errorf("min_connections cannot be negative")
 	}
@@ -173,6 +191,7 @@ func (b *Backend) pathConfigWrite(ctx context.Context, req *logical.Request, dat
 		SSLCipherSuites:       sslCipherSuites,
 		SSLSecure:             sslSecure,
 		SSLVersion:            sslVersion,
+		SessionVariables:      sessionVariables,
 	}
 
 	storageKey := "config"
@@ -259,6 +278,7 @@ func (b *Backend) pathConfigRead(ctx context.Context, req *logical.Request, data
 		"ssl_cipher_suites":       cfg.SSLCipherSuites,
 		"ssl_secure":              cfg.SSLSecure,
 		"ssl_version":             cfg.SSLVersion,
+		"session_variables":       cfg.SessionVariables,
 	}
 	if cfg.Region != "" {
 		respData["region"] = cfg.Region
