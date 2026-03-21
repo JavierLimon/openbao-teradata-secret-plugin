@@ -39,7 +39,7 @@ func (b *Backend) pathRenewCredsHandler(ctx context.Context, req *logical.Reques
 		return nil, fmt.Errorf("invalid username: %w", err)
 	}
 
-	cred, err := getCredential(ctx, req.Storage, username)
+	cred, err := b.getCachedCredential(ctx, req.Storage, username)
 	if err != nil {
 		return nil, fmt.Errorf("failed to retrieve credential: %w", err)
 	}
@@ -107,6 +107,7 @@ func (b *Backend) pathRenewCredsHandler(ctx context.Context, req *logical.Reques
 	if err := storeCredential(ctx, req.Storage, username, cred); err != nil {
 		return nil, fmt.Errorf("failed to update credential: %w", err)
 	}
+	b.cacheCredential(username, cred)
 
 	return &logical.Response{
 		Data: map[string]interface{}{

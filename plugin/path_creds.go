@@ -75,6 +75,40 @@ func (b *Backend) pathCredsBatch() *framework.Path {
 	}
 }
 
+func (b *Backend) getCachedCredential(ctx context.Context, storage logical.Storage, username string) (*models.Credential, error) {
+	cache := b.getCredCache()
+	if cache != nil {
+		if cred, found := cache.Get(username); found {
+			return cred, nil
+		}
+	}
+
+	cred, err := getCredential(ctx, storage, username)
+	if err != nil {
+		return nil, err
+	}
+
+	if cred != nil && cache != nil {
+		cache.Set(username, cred)
+	}
+
+	return cred, nil
+}
+
+func (b *Backend) cacheCredential(username string, cred *models.Credential) {
+	cache := b.getCredCache()
+	if cache != nil && cred != nil {
+		cache.Set(username, cred)
+	}
+}
+
+func (b *Backend) invalidateCachedCredential(username string) {
+	cache := b.getCredCache()
+	if cache != nil {
+		cache.Delete(username)
+	}
+}
+
 func (b *Backend) pathCredsRead(ctx context.Context, req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
 	name := data.Get("name").(string)
 	region := data.Get("region").(string)
@@ -190,6 +224,7 @@ func (b *Backend) pathCredsRead(ctx context.Context, req *logical.Request, data 
 	if err := storeCredential(ctx, req.Storage, username, cred); err != nil {
 		return nil, fmt.Errorf("failed to store credential: %w", err)
 	}
+	b.cacheCredential(username, cred)
 
 	resp := &logical.Response{
 		Data: map[string]interface{}{
@@ -344,6 +379,7 @@ func (b *Backend) pathCredsBatchRead(ctx context.Context, req *logical.Request, 
 		if err := storeCredential(ctx, req.Storage, username, credModel); err != nil {
 			return nil, fmt.Errorf("failed to store credential for %s: %w", username, err)
 		}
+		b.cacheCredential(username, credModel)
 
 		cred := map[string]interface{}{
 			"username": username,
@@ -541,7 +577,10 @@ func storeCredential(ctx context.Context, storage logical.Storage, username stri
 	if err != nil {
 		return err
 	}
-	return storage.Put(ctx, entry)
+	if err := storage.Put(ctx, entry); err != nil {
+		return err
+	}
+	return nil
 }
 
 func getCredential(ctx context.Context, storage logical.Storage, username string) (*models.Credential, error) {
@@ -626,7 +665,7 @@ func listAllLeases(ctx context.Context, storage logical.Storage) ([]*models.Cred
 	return leases, nil
 }
 
-func cleanupExpiredCredentials(ctx context.Context, storage logical.Storage, connString string) (int, error) {
+func (b *Backend) cleanupExpiredCredentials(ctx context.Context, storage logical.Storage, connString string) (int, error) {
 	entries, err := storage.List(ctx, credentialPrefix)
 	if err != nil {
 		return 0, err
@@ -647,6 +686,7 @@ func cleanupExpiredCredentials(ctx context.Context, storage logical.Storage, con
 			if execErr == nil {
 				delErr := deleteCredential(ctx, storage, username)
 				if delErr == nil {
+					b.invalidateCachedCredential(username)
 					cleaned++
 				}
 			}

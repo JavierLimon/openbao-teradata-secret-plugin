@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/JavierLimon/openbao-teradata-secret-plugin/audit"
 	"github.com/JavierLimon/openbao-teradata-secret-plugin/models"
@@ -26,6 +27,7 @@ type Backend struct {
 	mu      sync.RWMutex
 
 	dbRegistry *storage.DBRegistry
+	credCache  *credentialCache
 }
 
 var _ logical.Backend = (*Backend)(nil)
@@ -54,6 +56,7 @@ func (b *Backend) Setup(ctx context.Context, cfg *logical.BackendConfig) error {
 
 	b.storage = cfg.StorageView
 	b.dbRegistry = storage.NewDBRegistry()
+	b.credCache = newCredentialCache(5*time.Minute, 10000)
 
 	return nil
 }
@@ -95,6 +98,12 @@ func (b *Backend) getDBRegistry() *storage.DBRegistry {
 	return b.dbRegistry
 }
 
+func (b *Backend) getCredCache() *credentialCache {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return b.credCache
+}
+
 func (b *Backend) Revoke(ctx context.Context, leaseID string) error {
 	if leaseID == "" {
 		return nil
@@ -108,7 +117,7 @@ func (b *Backend) Revoke(ctx context.Context, leaseID string) error {
 	roleName := parts[2]
 	username := parts[3]
 
-	cred, err := getCredential(ctx, b.storage, username)
+	cred, err := b.getCachedCredential(ctx, b.storage, username)
 	if err != nil {
 		return fmt.Errorf("failed to get credential for revocation: %w", err)
 	}
@@ -165,6 +174,8 @@ func (b *Backend) Revoke(ctx context.Context, leaseID string) error {
 
 	_ = audit.LogCredentialRevocation(ctx, b.storage, username, roleName, nil)
 	_ = webhook.SendCredentialRevokedWebhook(ctx, b.storage, username, roleName, nil)
+
+	b.invalidateCachedCredential(username)
 	return nil
 }
 

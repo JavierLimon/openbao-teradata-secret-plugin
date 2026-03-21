@@ -37,7 +37,7 @@ func (b *Backend) pathRevokeCredsHandler(ctx context.Context, req *logical.Reque
 		return nil, fmt.Errorf("invalid username: %w", err)
 	}
 
-	cred, err := getCredential(ctx, req.Storage, username)
+	cred, err := b.getCachedCredential(ctx, req.Storage, username)
 	if err != nil {
 		return nil, fmt.Errorf("failed to retrieve credential: %w", err)
 	}
@@ -81,6 +81,7 @@ func (b *Backend) pathRevokeCredsHandler(ctx context.Context, req *logical.Reque
 	if err := deleteCredential(ctx, req.Storage, username); err != nil {
 		return nil, fmt.Errorf("failed to delete credential: %w", err)
 	}
+	b.invalidateCachedCredential(username)
 
 	return &logical.Response{
 		Data: map[string]interface{}{

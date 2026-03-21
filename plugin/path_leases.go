@@ -145,7 +145,7 @@ func (b *Backend) pathCleanupExpiredHandler(ctx context.Context, req *logical.Re
 		return nil, fmt.Errorf("database configuration not found")
 	}
 
-	cleaned, err := cleanupExpiredCredentials(ctx, req.Storage, cfg.ConnectionString)
+	cleaned, err := b.cleanupExpiredCredentials(ctx, req.Storage, cfg.ConnectionString)
 	if err != nil {
 		return nil, fmt.Errorf("failed to cleanup expired credentials: %w", err)
 	}
