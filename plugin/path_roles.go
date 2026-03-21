@@ -36,6 +36,16 @@ func (b *Backend) pathRoles() *framework.Path {
 				Type:        framework.TypeString,
 				Description: "Database password template (use {{password}} placeholder)",
 			},
+			"username_prefix": {
+				Type:        framework.TypeString,
+				Description: "Prefix for generated usernames",
+				Default:     "",
+			},
+			"username_suffix": {
+				Type:        framework.TypeString,
+				Description: "Suffix for generated usernames",
+				Default:     "",
+			},
 			"default_ttl": {
 				Type:        framework.TypeInt,
 				Description: "Default lease duration in seconds",
@@ -186,6 +196,8 @@ func (b *Backend) pathRoleCreate(ctx context.Context, req *logical.Request, data
 		Version:             models.RoleVersion,
 		DBUser:              dbUser,
 		DBPassword:          data.Get("db_password").(string),
+		UsernamePrefix:      data.Get("username_prefix").(string),
+		UsernameSuffix:      data.Get("username_suffix").(string),
 		DefaultTTL:          data.Get("default_ttl").(int),
 		MaxTTL:              data.Get("max_ttl").(int),
 		RenewalPeriod:       data.Get("renewal_period").(int),
@@ -259,6 +271,8 @@ func (b *Backend) pathRoleRead(ctx context.Context, req *logical.Request, data *
 		"name":                 role.Name,
 		"version":              role.Version,
 		"db_user":              role.DBUser,
+		"username_prefix":      role.UsernamePrefix,
+		"username_suffix":      role.UsernameSuffix,
 		"default_ttl":          role.DefaultTTL,
 		"max_ttl":              role.MaxTTL,
 		"renewal_period":       role.RenewalPeriod,
@@ -332,6 +346,7 @@ func (b *Backend) pathRoleUpdate(ctx context.Context, req *logical.Request, data
 
 	if existingRole != nil {
 		role.UsernamePrefix = existingRole.UsernamePrefix
+		role.UsernameSuffix = existingRole.UsernameSuffix
 		role.DefaultDatabase = existingRole.DefaultDatabase
 		role.PermSpace = existingRole.PermSpace
 		role.SpoolSpace = existingRole.SpoolSpace

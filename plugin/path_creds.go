@@ -197,7 +197,7 @@ func (b *Backend) pathCredsRead(ctx context.Context, req *logical.Request, data 
 		}
 	}
 
-	username := generateUsername(role.UsernamePrefix)
+	username := generateUsername(role.UsernamePrefix, role.UsernameSuffix)
 	password := generatePassword()
 
 	if err := teradb.ValidateUsername(username); err != nil {
@@ -381,7 +381,7 @@ func (b *Backend) pathCredsBatchRead(ctx context.Context, req *logical.Request, 
 	credentials := make([]map[string]interface{}, 0, count)
 
 	for i := 0; i < count; i++ {
-		username := generateUsername(role.UsernamePrefix)
+		username := generateUsername(role.UsernamePrefix, role.UsernameSuffix)
 		password := generatePassword()
 
 		if err := teradb.ValidateUsername(username); err != nil {
@@ -587,15 +587,18 @@ func ensurePasswordRequirements(password string) string {
 	return string(runes)
 }
 
-func generateUsername(prefix string) string {
+func generateUsername(prefix, suffixCustom string) string {
+	if prefix == "" {
+		prefix = "vault"
+	}
+	if suffixCustom != "" {
+		return fmt.Sprintf("%s_%s", prefix, suffixCustom)
+	}
 	bytes := make([]byte, 8)
 	if _, err := rand.Read(bytes); err != nil {
 		return ""
 	}
 	suffix := hex.EncodeToString(bytes)
-	if prefix == "" {
-		prefix = "vault"
-	}
 	return fmt.Sprintf("%s_%s", prefix, suffix)
 }
 

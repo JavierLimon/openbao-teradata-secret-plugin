@@ -44,6 +44,7 @@ type Role struct {
 	Version             int               `json:"version"`
 	DBUser              string            `json:"db_user"`
 	UsernamePrefix      string            `json:"username_prefix"`
+	UsernameSuffix      string            `json:"username_suffix"`
 	DBPassword          string            `json:"db_password,omitempty"`
 	DefaultTTL          int               `json:"default_ttl"`
 	MaxTTL              int               `json:"max_ttl"`
@@ -63,7 +64,7 @@ type Role struct {
 	SessionVariables    map[string]string `json:"session_variables"`
 }
 
-const RoleVersion = 2
+const RoleVersion = 3
 
 type Statement struct {
 	Name                string `json:"name"`

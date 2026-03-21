@@ -12,6 +12,7 @@ type roleMigrator func(ctx context.Context, storage logical.Storage, role *model
 
 var roleMigrations = map[int]roleMigrator{
 	1: migrateRoleV1toV2,
+	2: migrateRoleV2toV3,
 }
 
 func migrateRoleV1toV2(ctx context.Context, storage logical.Storage, role *models.Role) (*models.Role, error) {
@@ -25,6 +26,11 @@ func migrateRoleV1toV2(ctx context.Context, storage logical.Storage, role *model
 		role.SpoolSpace = 10485760
 	}
 	role.Version = 2
+	return role, nil
+}
+
+func migrateRoleV2toV3(ctx context.Context, storage logical.Storage, role *models.Role) (*models.Role, error) {
+	role.Version = 3
 	return role, nil
 }
 
