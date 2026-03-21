@@ -94,6 +94,24 @@ func (b *Backend) GetRateLimitConfig() RateLimitConfig {
 	return b.rateLimiter.GetConfig()
 }
 
+func (b *Backend) Shutdown() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if b.dbRegistry != nil {
+		b.dbRegistry.Shutdown()
+	}
+	if b.credCache != nil {
+		b.credCache.Close()
+	}
+	if b.queryCache != nil {
+		b.queryCache.Close()
+	}
+	if b.rateLimiter != nil && b.rateLimiter.limiter != nil {
+		b.rateLimiter.limiter.Close()
+	}
+}
+
 func (b *Backend) paths() []*framework.Path {
 	return []*framework.Path{
 		b.pathConfig(),

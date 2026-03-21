@@ -16,6 +16,7 @@ type RateLimiter struct {
 	rate     rate.Limit
 	burst    int
 	cleanup  time.Duration
+	done     chan struct{}
 }
 
 type RateLimitConfig struct {
@@ -40,6 +41,7 @@ func NewRateLimiter(cfg RateLimitConfig) *RateLimiter {
 		rate:     rate.Limit(cfg.RequestsPerSecond),
 		burst:    cfg.BurstSize,
 		cleanup:  cfg.CleanupInterval,
+		done:     make(chan struct{}),
 	}
 
 	go rl.cleanupLoop()
@@ -76,9 +78,18 @@ func (rl *RateLimiter) cleanupLoop() {
 	ticker := time.NewTicker(rl.cleanup)
 	defer ticker.Stop()
 
-	for range ticker.C {
-		rl.cleanupExpired()
+	for {
+		select {
+		case <-rl.done:
+			return
+		case <-ticker.C:
+			rl.cleanupExpired()
+		}
 	}
+}
+
+func (rl *RateLimiter) Close() {
+	close(rl.done)
 }
 
 func (rl *RateLimiter) cleanupExpired() {
