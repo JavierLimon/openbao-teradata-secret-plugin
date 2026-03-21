@@ -64,6 +64,7 @@ func (b *Backend) paths() []*framework.Path {
 		b.pathCredsBatch(),
 		b.pathHealth(),
 		b.pathVersion(),
+		b.pathPoolStats(),
 	}
 }
 

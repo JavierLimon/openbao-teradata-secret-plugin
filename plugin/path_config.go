@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/JavierLimon/openbao-teradata-secret-plugin/models"
+	"github.com/JavierLimon/openbao-teradata-secret-plugin/security"
 	"github.com/openbao/openbao/sdk/v2/framework"
 	"github.com/openbao/openbao/sdk/v2/logical"
 )
@@ -57,6 +58,11 @@ func (b *Backend) pathConfig() *framework.Path {
 
 func (b *Backend) pathConfigWrite(ctx context.Context, req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
 	connectionString := data.Get("connection_string").(string)
+
+	if err := security.ValidateConnectionString(connectionString); err != nil {
+		return nil, fmt.Errorf("invalid connection string: %w", err)
+	}
+
 	maxOpenConnections := data.Get("max_open_connections").(int)
 	maxIdleConnections := data.Get("max_idle_connections").(int)
 	connectionTimeout := data.Get("connection_timeout").(int)
