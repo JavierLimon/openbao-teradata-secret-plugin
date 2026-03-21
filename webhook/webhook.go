@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/JavierLimon/openbao-teradata-secret-plugin/retry"
 	"github.com/openbao/openbao/sdk/v2/logical"
 )
 
@@ -96,21 +97,24 @@ func SendWebhook(ctx context.Context, config *WebhookConfig, eventType WebhookEv
 		Timeout: timeout,
 	}
 
-	var lastErr error
 	retryCount := config.RetryCount
 	if retryCount <= 0 {
 		retryCount = defaultRetries
 	}
 
-	for i := 0; i <= retryCount; i++ {
-		if i > 0 {
-			time.Sleep(time.Duration(i*100) * time.Millisecond)
-		}
+	retryCfg := &retry.Config{
+		MaxAttempts:     retryCount,
+		InitialInterval: 100 * time.Millisecond,
+		MaxInterval:     5 * time.Second,
+		Multiplier:      2.0,
+	}
 
+	var lastErr error
+	err = retry.Do(ctx, retryCfg, func() error {
 		req, err := http.NewRequestWithContext(ctx, http.MethodPost, config.URL, bytes.NewBuffer(jsonPayload))
 		if err != nil {
 			lastErr = fmt.Errorf("failed to create webhook request: %w", err)
-			continue
+			return err
 		}
 
 		req.Header.Set("Content-Type", "application/json")
@@ -120,7 +124,7 @@ func SendWebhook(ctx context.Context, config *WebhookConfig, eventType WebhookEv
 		resp, err := client.Do(req)
 		if err != nil {
 			lastErr = fmt.Errorf("webhook request failed: %w", err)
-			continue
+			return retry.NewTransientError(err)
 		}
 
 		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
@@ -130,9 +134,16 @@ func SendWebhook(ctx context.Context, config *WebhookConfig, eventType WebhookEv
 
 		lastErr = fmt.Errorf("webhook returned status %d", resp.StatusCode)
 		resp.Body.Close()
-	}
+		if resp.StatusCode >= 500 {
+			return retry.NewTransientError(lastErr)
+		}
+		return lastErr
+	})
 
-	return lastErr
+	if err != nil {
+		return lastErr
+	}
+	return nil
 }
 
 func SendCredentialCreatedWebhook(ctx context.Context, storage logical.Storage, username, roleName, leaseID string, metadata map[string]interface{}) error {
