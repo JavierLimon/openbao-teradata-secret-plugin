@@ -6,15 +6,14 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-
-	_ "github.com/alexbrainman/odbc"
 )
 
 var ErrNotConnected = errors.New("not connected")
 
 type Connection struct {
-	db        *sql.DB
-	connected bool
+	connString string
+	connected  bool
+	db         *sql.DB
 }
 
 func Connect(connString string) (*Connection, error) {
@@ -29,14 +28,18 @@ func Connect(connString string) (*Connection, error) {
 	}
 
 	return &Connection{
-		db:        db,
-		connected: true,
+		connString: connString,
+		connected:  true,
+		db:         db,
 	}, nil
 }
 
 func (c *Connection) Close() error {
 	if !c.connected || c.db == nil {
 		return ErrNotConnected
+	}
+	if c.db != nil {
+		c.db.Close()
 	}
 	c.connected = false
 	return c.db.Close()
@@ -138,5 +141,117 @@ func ValidateUsername(username string) error {
 			return fmt.Errorf("username contains invalid character: %c", c)
 		}
 	}
+	return nil
+}
+
+// ExecuteGrantStatements executes multiple GRANT statements
+// Statements are separated by semicolons. Empty statements are skipped.
+func (c *Connection) ExecuteGrantStatements(grantStatements string) error {
+	if !c.connected {
+		return errors.New("not connected")
+	}
+
+	if strings.TrimSpace(grantStatements) == "" {
+		return nil
+	}
+
+	statements := parseSQLStatements(grantStatements)
+
+	for _, stmt := range statements {
+		stmt = strings.TrimSpace(stmt)
+		if stmt == "" {
+			continue
+		}
+
+		stmt = normalizeGrantStatement(stmt)
+		if stmt == "" {
+			continue
+		}
+
+		_, err := c.db.Exec(stmt)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// parseSQLStatements splits a multi-statement SQL string into individual statements
+// It handles semicolon-separated statements
+func parseSQLStatements(sql string) []string {
+	var statements []string
+	var current strings.Builder
+
+	lines := strings.Split(sql, "\n")
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+
+		if trimmed == "" {
+			continue
+		}
+
+		current.WriteString(line)
+		current.WriteString("\n")
+
+		if strings.HasSuffix(trimmed, ";") {
+			statements = append(statements, current.String())
+			current.Reset()
+		}
+	}
+
+	if current.Len() > 0 {
+		statements = append(statements, current.String())
+	}
+
+	return statements
+}
+
+// normalizeGrantStatement normalizes a GRANT statement
+// Returns empty string if the statement is not a GRANT statement
+func normalizeGrantStatement(stmt string) string {
+	stmt = strings.TrimSpace(stmt)
+
+	upperStmt := strings.ToUpper(stmt)
+	upperStmt = strings.TrimSpace(upperStmt)
+
+	if !strings.HasPrefix(upperStmt, "GRANT") {
+		return ""
+	}
+
+	return stmt
+}
+
+// ExecuteMultipleStatements executes multiple SQL statements separated by semicolons
+// Returns error if any statement fails
+func (c *Connection) ExecuteMultipleStatements(sqlStatements string) error {
+	if !c.connected {
+		return errors.New("not connected")
+	}
+
+	if strings.TrimSpace(sqlStatements) == "" {
+		return nil
+	}
+
+	statements := parseSQLStatements(sqlStatements)
+
+	for _, stmt := range statements {
+		stmt = strings.TrimSpace(stmt)
+		if stmt == "" {
+			continue
+		}
+
+		stmt = strings.TrimSuffix(stmt, ";")
+		stmt = strings.TrimSpace(stmt)
+		if stmt == "" {
+			continue
+		}
+
+		_, err := c.db.Exec(stmt)
+		if err != nil {
+			return err
+		}
+	}
+
 	return nil
 }
