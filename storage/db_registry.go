@@ -11,13 +11,14 @@ import (
 )
 
 type DBConfig struct {
-	Name                string        `json:"name"`
-	ConnectionString    string        `json:"connection_string"`
-	MaxOpenConnections  int           `json:"max_open_connections"`
-	MaxIdleConnections  int           `json:"max_idle_connections"`
-	ConnectionTimeout   time.Duration `json:"connection_timeout"`
-	HealthCheckInterval time.Duration `json:"health_check_interval"`
-	HealthCheckTimeout  time.Duration `json:"health_check_timeout"`
+	Name                  string        `json:"name"`
+	ConnectionString      string        `json:"connection_string"`
+	MaxOpenConnections    int           `json:"max_open_connections"`
+	MaxIdleConnections    int           `json:"max_idle_connections"`
+	ConnectionTimeout     time.Duration `json:"connection_timeout"`
+	IdleConnectionTimeout time.Duration `json:"idle_connection_timeout"`
+	HealthCheckInterval   time.Duration `json:"health_check_interval"`
+	HealthCheckTimeout    time.Duration `json:"health_check_timeout"`
 }
 
 type ConnectionState int
@@ -35,6 +36,7 @@ type DBConnection struct {
 	mu              sync.RWMutex
 	state           ConnectionState
 	lastHealthCheck time.Time
+	lastUsed        time.Time
 	healthCheckErr  error
 }
 
@@ -44,6 +46,7 @@ type DBRegistry struct {
 	ctx         context.Context
 	cancel      context.CancelFunc
 	healthDone  chan struct{}
+	cleanupDone chan struct{}
 }
 
 func NewDBRegistry() *DBRegistry {
@@ -53,6 +56,7 @@ func NewDBRegistry() *DBRegistry {
 		ctx:         ctx,
 		cancel:      cancel,
 		healthDone:  make(chan struct{}),
+		cleanupDone: make(chan struct{}),
 	}
 }
 
@@ -75,6 +79,63 @@ func (r *DBRegistry) StartHealthChecks() {
 func (r *DBRegistry) StopHealthChecks() {
 	r.cancel()
 	<-r.healthDone
+}
+
+func (r *DBRegistry) StartCleanupJob(interval time.Duration) {
+	if interval <= 0 {
+		interval = 60 * time.Second
+	}
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-r.ctx.Done():
+				close(r.cleanupDone)
+				return
+			case <-ticker.C:
+				r.runCleanup()
+			}
+		}
+	}()
+}
+
+func (r *DBRegistry) StopCleanupJob() {
+	r.cancel()
+	<-r.cleanupDone
+}
+
+func (r *DBRegistry) runCleanup() {
+	r.mu.RLock()
+	var connections []*DBConnection
+	for _, conn := range r.connections {
+		connections = append(connections, conn)
+	}
+	r.mu.RUnlock()
+
+	for _, conn := range connections {
+		conn.cleanupIdleConnections()
+	}
+}
+
+func (c *DBConnection) cleanupIdleConnections() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.Database == nil || c.Config.IdleConnectionTimeout <= 0 {
+		return
+	}
+
+	if time.Since(c.lastUsed) > c.Config.IdleConnectionTimeout {
+		c.Database.Close()
+		c.state = StateClosed
+	}
+}
+
+func (c *DBConnection) TouchLastUsed() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.lastUsed = time.Now()
 }
 
 func (r *DBRegistry) runHealthChecks() {
@@ -151,6 +212,9 @@ func (r *DBRegistry) AddConnection(name string, config *DBConfig) (*DBConnection
 	if config.ConnectionTimeout == 0 {
 		config.ConnectionTimeout = 10 * time.Second
 	}
+	if config.IdleConnectionTimeout == 0 {
+		config.IdleConnectionTimeout = 5 * time.Minute
+	}
 
 	db, err := sql.Open("odbc", config.ConnectionString)
 	if err != nil {
@@ -165,6 +229,7 @@ func (r *DBRegistry) AddConnection(name string, config *DBConfig) (*DBConnection
 		Database:        db,
 		state:           StateUnknown,
 		lastHealthCheck: time.Now(),
+		lastUsed:        time.Now(),
 	}
 
 	r.connections[name] = dbc
