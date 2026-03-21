@@ -37,6 +37,7 @@ type Config struct {
 	EvictionBatchSize        int               `json:"eviction_batch_size"`
 	EvictionGracePeriod      int               `json:"eviction_grace_period"`
 	MinEvictableIdleTime     int               `json:"min_evictable_idle_time"`
+	TimeZone                 string            `json:"timezone"`
 }
 
 type Role struct {

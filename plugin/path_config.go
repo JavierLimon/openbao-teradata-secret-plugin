@@ -148,6 +148,10 @@ func (b *Backend) pathConfig() *framework.Path {
 				Description: "Minimum idle time before connection becomes evictable (seconds)",
 				Default:     300,
 			},
+			"timezone": {
+				Type:        framework.TypeString,
+				Description: "Database time zone for the connection (e.g., 'America/New_York', 'UTC', '-08:00')",
+			},
 		},
 
 		Operations: map[logical.Operation]framework.OperationHandler{
@@ -203,6 +207,7 @@ func (b *Backend) pathConfigWrite(ctx context.Context, req *logical.Request, dat
 	evictionBatchSize := data.Get("eviction_batch_size").(int)
 	evictionGracePeriod := data.Get("eviction_grace_period").(int)
 	minEvictableIdleTime := data.Get("min_evictable_idle_time").(int)
+	timeZone := data.Get("timezone").(string)
 
 	var sessionVariables map[string]string
 	if rawVars, ok := data.Raw["session_variables"].(map[string]interface{}); ok {
@@ -296,6 +301,7 @@ func (b *Backend) pathConfigWrite(ctx context.Context, req *logical.Request, dat
 		EvictionBatchSize:       evictionBatchSize,
 		EvictionGracePeriod:     evictionGracePeriod,
 		MinEvictableIdleTime:    minEvictableIdleTime,
+		TimeZone:                timeZone,
 	}
 
 	storageKey := "config"
@@ -340,6 +346,7 @@ func (b *Backend) pathConfigWrite(ctx context.Context, req *logical.Request, dat
 		"eviction_batch_size":       evictionBatchSize,
 		"eviction_grace_period":     evictionGracePeriod,
 		"min_evictable_idle_time":   minEvictableIdleTime,
+		"timezone":                  timeZone,
 	}
 	if region != "" {
 		respData["region"] = region
@@ -405,6 +412,7 @@ func (b *Backend) pathConfigRead(ctx context.Context, req *logical.Request, data
 		"eviction_batch_size":       cfg.EvictionBatchSize,
 		"eviction_grace_period":     cfg.EvictionGracePeriod,
 		"min_evictable_idle_time":   cfg.MinEvictableIdleTime,
+		"timezone":                  cfg.TimeZone,
 	}
 	if cfg.Region != "" {
 		respData["region"] = cfg.Region
