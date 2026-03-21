@@ -412,6 +412,18 @@ func getConfigFieldSchema() map[string]*framework.FieldSchema {
 		"idle_timeout": {
 			Type: framework.TypeInt,
 		},
+		"max_retries": {
+			Type: framework.TypeInt,
+		},
+		"initial_retry_interval": {
+			Type: framework.TypeInt,
+		},
+		"max_retry_interval": {
+			Type: framework.TypeInt,
+		},
+		"retry_multiplier": {
+			Type: framework.TypeFloat,
+		},
 		"ssl_mode": {
 			Type: framework.TypeString,
 		},

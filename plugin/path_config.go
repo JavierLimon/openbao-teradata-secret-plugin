@@ -207,8 +207,8 @@ func (b *Backend) pathConfigWrite(ctx context.Context, req *logical.Request, dat
 	if maxRetryInterval < 0 {
 		return nil, fmt.Errorf("max_retry_interval cannot be negative")
 	}
-	if retryMultiplier <= 0 {
-		return nil, fmt.Errorf("retry_multiplier must be positive")
+	if retryMultiplier < 0 {
+		return nil, fmt.Errorf("retry_multiplier cannot be negative")
 	}
 
 	cfg := &models.Config{
