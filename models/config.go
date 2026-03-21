@@ -1,22 +1,24 @@
 package models
 
 type Config struct {
-	Region             string `json:"region"`
-	ConnectionString   string `json:"connection_string"`
-	MinConnections     int    `json:"min_connections"`
-	MaxOpenConnections int    `json:"max_open_connections"`
-	MaxIdleConnections int    `json:"max_idle_connections"`
-	ConnectionTimeout  int    `json:"connection_timeout"`
-	Username           string `json:"username"`
-	Password           string `json:"password,omitempty"`
-	SSLMode            string `json:"ssl_mode"`
-	SSLCert            string `json:"ssl_cert"`
-	SSLKey             string `json:"ssl_key"`
-	SSLRootCert        string `json:"ssl_root_cert"`
-	SSLKeyPassword     string `json:"ssl_key_password,omitempty"`
-	SSLCipherSuites    string `json:"ssl_cipher_suites"`
-	SSLSecure          bool   `json:"ssl_secure"`
-	SSLVersion         string `json:"ssl_version"`
+	Region                string `json:"region"`
+	ConnectionString      string `json:"connection_string"`
+	MinConnections        int    `json:"min_connections"`
+	MaxOpenConnections    int    `json:"max_open_connections"`
+	MaxIdleConnections    int    `json:"max_idle_connections"`
+	ConnectionTimeout     int    `json:"connection_timeout"`
+	MaxConnectionLifetime int    `json:"max_connection_lifetime"`
+	IdleTimeout           int    `json:"idle_timeout"`
+	Username              string `json:"username"`
+	Password              string `json:"password,omitempty"`
+	SSLMode               string `json:"ssl_mode"`
+	SSLCert               string `json:"ssl_cert"`
+	SSLKey                string `json:"ssl_key"`
+	SSLRootCert           string `json:"ssl_root_cert"`
+	SSLKeyPassword        string `json:"ssl_key_password,omitempty"`
+	SSLCipherSuites       string `json:"ssl_cipher_suites"`
+	SSLSecure             bool   `json:"ssl_secure"`
+	SSLVersion            string `json:"ssl_version"`
 }
 
 type Role struct {

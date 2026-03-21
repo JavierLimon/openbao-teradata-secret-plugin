@@ -46,6 +46,16 @@ func (b *Backend) pathConfig() *framework.Path {
 				Description: "Connection timeout in seconds",
 				Default:     30,
 			},
+			"max_connection_lifetime": {
+				Type:        framework.TypeInt,
+				Description: "Maximum connection lifetime in seconds (0 = no limit)",
+				Default:     3600,
+			},
+			"idle_timeout": {
+				Type:        framework.TypeInt,
+				Description: "Idle connection timeout in seconds",
+				Default:     300,
+			},
 			"ssl_mode": {
 				Type:        framework.TypeString,
 				Description: "SSL mode: disable, allow, verify-ca, verify-full, require",
@@ -114,6 +124,8 @@ func (b *Backend) pathConfigWrite(ctx context.Context, req *logical.Request, dat
 	maxOpenConnections := data.Get("max_open_connections").(int)
 	maxIdleConnections := data.Get("max_idle_connections").(int)
 	connectionTimeout := data.Get("connection_timeout").(int)
+	maxConnectionLifetime := data.Get("max_connection_lifetime").(int)
+	idleTimeout := data.Get("idle_timeout").(int)
 	sslMode := data.Get("ssl_mode").(string)
 	sslCert := data.Get("ssl_cert").(string)
 	sslKey := data.Get("ssl_key").(string)
@@ -145,20 +157,22 @@ func (b *Backend) pathConfigWrite(ctx context.Context, req *logical.Request, dat
 	}
 
 	cfg := &models.Config{
-		Region:             region,
-		ConnectionString:   connectionString,
-		MinConnections:     minConnections,
-		MaxOpenConnections: maxOpenConnections,
-		MaxIdleConnections: maxIdleConnections,
-		ConnectionTimeout:  connectionTimeout,
-		SSLMode:            sslMode,
-		SSLCert:            sslCert,
-		SSLKey:             sslKey,
-		SSLRootCert:        sslRootCert,
-		SSLKeyPassword:     sslKeyPassword,
-		SSLCipherSuites:    sslCipherSuites,
-		SSLSecure:          sslSecure,
-		SSLVersion:         sslVersion,
+		Region:                region,
+		ConnectionString:      connectionString,
+		MinConnections:        minConnections,
+		MaxOpenConnections:    maxOpenConnections,
+		MaxIdleConnections:    maxIdleConnections,
+		ConnectionTimeout:     connectionTimeout,
+		MaxConnectionLifetime: maxConnectionLifetime,
+		IdleTimeout:           idleTimeout,
+		SSLMode:               sslMode,
+		SSLCert:               sslCert,
+		SSLKey:                sslKey,
+		SSLRootCert:           sslRootCert,
+		SSLKeyPassword:        sslKeyPassword,
+		SSLCipherSuites:       sslCipherSuites,
+		SSLSecure:             sslSecure,
+		SSLVersion:            sslVersion,
 	}
 
 	storageKey := "config"
@@ -178,18 +192,20 @@ func (b *Backend) pathConfigWrite(ctx context.Context, req *logical.Request, dat
 	b.invalidateConfigCache(region)
 
 	respData := map[string]interface{}{
-		"connection_string":    "***",
-		"min_connections":      minConnections,
-		"max_open_connections": maxOpenConnections,
-		"max_idle_connections": maxIdleConnections,
-		"connection_timeout":   connectionTimeout,
-		"ssl_mode":             sslMode,
-		"ssl_cert":             sslCert,
-		"ssl_key":              sslKey,
-		"ssl_root_cert":        sslRootCert,
-		"ssl_cipher_suites":    sslCipherSuites,
-		"ssl_secure":           sslSecure,
-		"ssl_version":          sslVersion,
+		"connection_string":       "***",
+		"min_connections":         minConnections,
+		"max_open_connections":    maxOpenConnections,
+		"max_idle_connections":    maxIdleConnections,
+		"connection_timeout":      connectionTimeout,
+		"max_connection_lifetime": maxConnectionLifetime,
+		"idle_timeout":            idleTimeout,
+		"ssl_mode":                sslMode,
+		"ssl_cert":                sslCert,
+		"ssl_key":                 sslKey,
+		"ssl_root_cert":           sslRootCert,
+		"ssl_cipher_suites":       sslCipherSuites,
+		"ssl_secure":              sslSecure,
+		"ssl_version":             sslVersion,
 	}
 	if region != "" {
 		respData["region"] = region
@@ -229,18 +245,20 @@ func (b *Backend) pathConfigRead(ctx context.Context, req *logical.Request, data
 	}
 
 	respData := map[string]interface{}{
-		"connection_string":    "***",
-		"min_connections":      cfg.MinConnections,
-		"max_open_connections": cfg.MaxOpenConnections,
-		"max_idle_connections": cfg.MaxIdleConnections,
-		"connection_timeout":   cfg.ConnectionTimeout,
-		"ssl_mode":             cfg.SSLMode,
-		"ssl_cert":             cfg.SSLCert,
-		"ssl_key":              cfg.SSLKey,
-		"ssl_root_cert":        cfg.SSLRootCert,
-		"ssl_cipher_suites":    cfg.SSLCipherSuites,
-		"ssl_secure":           cfg.SSLSecure,
-		"ssl_version":          cfg.SSLVersion,
+		"connection_string":       "***",
+		"min_connections":         cfg.MinConnections,
+		"max_open_connections":    cfg.MaxOpenConnections,
+		"max_idle_connections":    cfg.MaxIdleConnections,
+		"connection_timeout":      cfg.ConnectionTimeout,
+		"max_connection_lifetime": cfg.MaxConnectionLifetime,
+		"idle_timeout":            cfg.IdleTimeout,
+		"ssl_mode":                cfg.SSLMode,
+		"ssl_cert":                cfg.SSLCert,
+		"ssl_key":                 cfg.SSLKey,
+		"ssl_root_cert":           cfg.SSLRootCert,
+		"ssl_cipher_suites":       cfg.SSLCipherSuites,
+		"ssl_secure":              cfg.SSLSecure,
+		"ssl_version":             cfg.SSLVersion,
 	}
 	if cfg.Region != "" {
 		respData["region"] = cfg.Region
