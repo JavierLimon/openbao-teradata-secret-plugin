@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/JavierLimon/openbao-teradata-secret-plugin/audit"
 	"github.com/JavierLimon/openbao-teradata-secret-plugin/models"
@@ -22,10 +23,17 @@ const (
 type Backend struct {
 	*framework.Backend
 
-	storage logical.Storage
-	mu      sync.RWMutex
-
+	storage    logical.Storage
+	mu         sync.RWMutex
 	dbRegistry *storage.DBRegistry
+
+	rateLimiter *RateLimiterMiddleware
+}
+
+var DefaultRateLimitConfig = RateLimitConfig{
+	RequestsPerSecond: 100,
+	BurstSize:         50,
+	CleanupInterval:   5 * time.Minute,
 }
 
 var _ logical.Backend = (*Backend)(nil)
@@ -54,8 +62,33 @@ func (b *Backend) Setup(ctx context.Context, cfg *logical.BackendConfig) error {
 
 	b.storage = cfg.StorageView
 	b.dbRegistry = storage.NewDBRegistry()
+	b.rateLimiter = NewRateLimiterMiddleware(b, DefaultRateLimitConfig, true)
 
 	return nil
+}
+
+func (b *Backend) HandleRequest(ctx context.Context, req *logical.Request) (*logical.Response, error) {
+	if req == nil {
+		return b.Backend.HandleRequest(ctx, req)
+	}
+
+	if err := b.rateLimiter.RateLimit(ctx, req); err != nil {
+		return nil, err
+	}
+
+	return b.Backend.HandleRequest(ctx, req)
+}
+
+func (b *Backend) SetRateLimiterEnabled(enabled bool) {
+	b.rateLimiter.SetEnabled(enabled)
+}
+
+func (b *Backend) IsRateLimiterEnabled() bool {
+	return b.rateLimiter.IsEnabled()
+}
+
+func (b *Backend) GetRateLimitConfig() RateLimitConfig {
+	return b.rateLimiter.GetConfig()
 }
 
 func (b *Backend) paths() []*framework.Path {
@@ -86,6 +119,8 @@ func (b *Backend) paths() []*framework.Path {
 		b.pathVersion(),
 		b.pathAPIVersion(),
 		b.pathPoolStats(),
+		b.pathRateLimitConfig(),
+		b.pathRateLimitStatus(),
 	}
 }
 
