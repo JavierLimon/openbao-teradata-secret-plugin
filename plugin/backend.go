@@ -199,6 +199,7 @@ func (b *Backend) paths() []*framework.Path {
 		b.pathConfigRestore(),
 		b.pathReloadConfig(),
 		b.pathReloadConfigV1(),
+		b.pathReloadPlugin(),
 		b.pathWebhook(),
 		b.pathRoles(),
 		b.pathRolesV1(),
