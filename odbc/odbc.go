@@ -589,3 +589,13 @@ func (c *Connection) GetDriverName() string {
 	}
 	return "odbc"
 }
+
+// BuildConnectionStringFromTemplate builds a connection string from a template
+func BuildConnectionStringFromTemplate(template string, params map[string]string) (string, error) {
+	result := template
+	for key, value := range params {
+		placeholder := fmt.Sprintf("{%s}", key)
+		result = strings.ReplaceAll(result, placeholder, value)
+	}
+	return result, nil
+}

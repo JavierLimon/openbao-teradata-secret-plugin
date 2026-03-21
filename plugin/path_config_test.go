@@ -53,7 +53,7 @@ func TestPathConfigWrite(t *testing.T) {
 			name:             "empty connection string",
 			connectionString: "",
 			wantErr:          true,
-			errContains:      "either connection_string or connection_string_template is required",
+			errContains:      "connection string cannot be empty",
 		},
 		{
 			name:             "whitespace connection string",

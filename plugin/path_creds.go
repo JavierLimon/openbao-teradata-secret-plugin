@@ -597,7 +597,6 @@ func buildConnectionString(cfg *models.Config) (string, error) {
 	if cfg.ConnectionStringTemplate != "" {
 		params := map[string]string{
 			"server":   cfg.Server,
-			"servers":  cfg.Servers,
 			"port":     fmt.Sprintf("%d", cfg.Port),
 			"database": cfg.Database,
 			"username": cfg.Username,
