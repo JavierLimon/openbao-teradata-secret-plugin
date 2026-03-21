@@ -60,6 +60,8 @@ func (b *Backend) paths() []*framework.Path {
 	return []*framework.Path{
 		b.pathConfig(),
 		b.pathConfigV1(),
+		b.pathConfigBackup(),
+		b.pathConfigRestore(),
 		b.pathRoles(),
 		b.pathRolesV1(),
 		b.pathRoleList(),
