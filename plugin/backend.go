@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/JavierLimon/openbao-teradata-secret-plugin/audit"
+	"github.com/JavierLimon/openbao-teradata-secret-plugin/logging"
 	"github.com/JavierLimon/openbao-teradata-secret-plugin/models"
 	"github.com/JavierLimon/openbao-teradata-secret-plugin/odbc"
 	"github.com/JavierLimon/openbao-teradata-secret-plugin/retry"
@@ -68,6 +69,82 @@ func (b *Backend) Setup(ctx context.Context, cfg *logical.BackendConfig) error {
 	b.credCache = newCredentialCache(5*time.Minute, 10000)
 	b.queryCache = newQueryResultCache(5*time.Minute, 1000)
 	b.rateLimiter = NewRateLimiterMiddleware(b, DefaultRateLimitConfig, true)
+
+	if err := b.prewarmPools(ctx); err != nil {
+		return fmt.Errorf("failed to prewarm connection pools: %w", err)
+	}
+
+	return nil
+}
+
+func (b *Backend) prewarmPools(ctx context.Context) error {
+	configKeys := []string{"config"}
+
+	entries, err := b.storage.List(ctx, "config/")
+	if err != nil {
+		return fmt.Errorf("failed to list config keys: %w", err)
+	}
+	for _, entry := range entries {
+		configKeys = append(configKeys, "config/"+entry)
+	}
+
+	for _, key := range configKeys {
+		entry, err := b.storage.Get(ctx, key)
+		if err != nil {
+			logging.LogConnectionEvent(nil, "prewarm_config_load_error", key, map[string]interface{}{"error": err.Error()})
+			continue
+		}
+		if entry == nil {
+			continue
+		}
+
+		var cfg models.Config
+		if err := entry.DecodeJSON(&cfg); err != nil {
+			logging.LogConnectionEvent(nil, "prewarm_config_decode_error", key, map[string]interface{}{"error": err.Error()})
+			continue
+		}
+
+		if cfg.ConnectionString == "" {
+			continue
+		}
+
+		dbConfig := &storage.DBConfig{
+			Name:                  cfg.Region,
+			ConnectionString:      cfg.ConnectionString,
+			MinConnections:        cfg.MinConnections,
+			MaxOpenConnections:    cfg.MaxOpenConnections,
+			MaxIdleConnections:    cfg.MaxIdleConnections,
+			ConnectionTimeout:     time.Duration(cfg.ConnectionTimeout) * time.Second,
+			MaxConnectionLifetime: time.Duration(cfg.MaxConnectionLifetime) * time.Second,
+			IdleTimeout:           time.Duration(cfg.IdleTimeout) * time.Second,
+			SSLMode:               cfg.SSLMode,
+			SSLCert:               cfg.SSLCert,
+			SSLKey:                cfg.SSLKey,
+			SSLRootCert:           cfg.SSLRootCert,
+			SSLKeyPassword:        cfg.SSLKeyPassword,
+			SSLCipherSuites:       cfg.SSLCipherSuites,
+			SSLSecure:             cfg.SSLSecure,
+			SSLVersion:            cfg.SSLVersion,
+		}
+
+		name := cfg.Region
+		if name == "" {
+			name = "default"
+		}
+
+		conn, err := b.dbRegistry.AddConnection(name, dbConfig)
+		if err != nil {
+			logging.LogConnectionEvent(nil, "prewarm_pool_error", name, map[string]interface{}{"error": err.Error()})
+			continue
+		}
+
+		if conn != nil {
+			conn.WaitForWarmup()
+			logging.LogConnectionEvent(nil, "pool_prewarmed", name, map[string]interface{}{
+				"min_connections": dbConfig.MinConnections,
+			})
+		}
+	}
 
 	return nil
 }
