@@ -668,6 +668,7 @@ func buildConnectionString(cfg *models.Config) (string, error) {
 	if cfg.ConnectionString != "" {
 		connStr := teradb.AppendSessionTimeout(cfg.ConnectionString, cfg.SessionTimeout)
 		connStr = teradb.AppendTimeZone(connStr, cfg.TimeZone)
+		connStr = teradb.AppendCharacterSet(connStr, cfg.CharacterSet)
 		return teradb.AppendQueryTimeout(connStr, cfg.QueryTimeout), nil
 	}
 
@@ -686,6 +687,7 @@ func buildConnectionString(cfg *models.Config) (string, error) {
 		}
 		connStr = teradb.AppendSessionTimeout(connStr, cfg.SessionTimeout)
 		connStr = teradb.AppendTimeZone(connStr, cfg.TimeZone)
+		connStr = teradb.AppendCharacterSet(connStr, cfg.CharacterSet)
 		return teradb.AppendQueryTimeout(connStr, cfg.QueryTimeout), nil
 	}
 

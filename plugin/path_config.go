@@ -152,6 +152,10 @@ func (b *Backend) pathConfig() *framework.Path {
 				Type:        framework.TypeString,
 				Description: "Database time zone for the connection (e.g., 'America/New_York', 'UTC', '-08:00')",
 			},
+			"character_set": {
+				Type:        framework.TypeString,
+				Description: "Database character set for the connection (e.g., 'utf8', 'latin1', 'ascii')",
+			},
 		},
 
 		Operations: map[logical.Operation]framework.OperationHandler{
@@ -208,6 +212,7 @@ func (b *Backend) pathConfigWrite(ctx context.Context, req *logical.Request, dat
 	evictionGracePeriod := data.Get("eviction_grace_period").(int)
 	minEvictableIdleTime := data.Get("min_evictable_idle_time").(int)
 	timeZone := data.Get("timezone").(string)
+	characterSet := data.Get("character_set").(string)
 
 	var sessionVariables map[string]string
 	if rawVars, ok := data.Raw["session_variables"].(map[string]interface{}); ok {
@@ -302,6 +307,7 @@ func (b *Backend) pathConfigWrite(ctx context.Context, req *logical.Request, dat
 		EvictionGracePeriod:     evictionGracePeriod,
 		MinEvictableIdleTime:    minEvictableIdleTime,
 		TimeZone:                timeZone,
+		CharacterSet:            characterSet,
 	}
 
 	storageKey := "config"
@@ -347,6 +353,7 @@ func (b *Backend) pathConfigWrite(ctx context.Context, req *logical.Request, dat
 		"eviction_grace_period":     evictionGracePeriod,
 		"min_evictable_idle_time":   minEvictableIdleTime,
 		"timezone":                  timeZone,
+		"character_set":             characterSet,
 	}
 	if region != "" {
 		respData["region"] = region
@@ -413,6 +420,7 @@ func (b *Backend) pathConfigRead(ctx context.Context, req *logical.Request, data
 		"eviction_grace_period":     cfg.EvictionGracePeriod,
 		"min_evictable_idle_time":   cfg.MinEvictableIdleTime,
 		"timezone":                  cfg.TimeZone,
+		"character_set":             cfg.CharacterSet,
 	}
 	if cfg.Region != "" {
 		respData["region"] = cfg.Region

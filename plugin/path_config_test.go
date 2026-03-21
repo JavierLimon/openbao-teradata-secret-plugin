@@ -481,6 +481,9 @@ func getConfigFieldSchema() map[string]*framework.FieldSchema {
 		"timezone": {
 			Type: framework.TypeString,
 		},
+		"character_set": {
+			Type: framework.TypeString,
+		},
 	}
 }
 

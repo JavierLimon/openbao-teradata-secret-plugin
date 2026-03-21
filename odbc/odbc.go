@@ -257,6 +257,16 @@ func AppendTimeZone(baseConnString string, timeZone string) string {
 	return baseConnString + fmt.Sprintf(";TIMEZONE=%s", timeZone)
 }
 
+func AppendCharacterSet(baseConnString string, characterSet string) string {
+	if characterSet == "" {
+		return baseConnString
+	}
+	if strings.TrimSpace(baseConnString) == "" {
+		return fmt.Sprintf("CHARSET=%s", characterSet)
+	}
+	return baseConnString + fmt.Sprintf(";CHARSET=%s", characterSet)
+}
+
 func Connect(connString string) (*Connection, error) {
 	return ConnectWithRetry(connString, nil)
 }
