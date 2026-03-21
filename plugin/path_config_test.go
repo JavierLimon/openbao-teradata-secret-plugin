@@ -385,7 +385,10 @@ func getConfigFieldSchema() map[string]*framework.FieldSchema {
 		"connection_timeout": {
 			Type: framework.TypeInt,
 		},
-		"query_timeout": {
+		"max_connection_lifetime": {
+			Type: framework.TypeInt,
+		},
+		"idle_timeout": {
 			Type: framework.TypeInt,
 		},
 		"ssl_mode": {

@@ -19,7 +19,8 @@ type DBConfig struct {
 	MaxOpenConnections    int           `json:"max_open_connections"`
 	MaxIdleConnections    int           `json:"max_idle_connections"`
 	ConnectionTimeout     time.Duration `json:"connection_timeout"`
-	IdleConnectionTimeout time.Duration `json:"idle_connection_timeout"`
+	MaxConnectionLifetime time.Duration `json:"max_connection_lifetime"`
+	IdleTimeout           time.Duration `json:"idle_timeout"`
 	HealthCheckInterval   time.Duration `json:"health_check_interval"`
 	HealthCheckTimeout    time.Duration `json:"health_check_timeout"`
 	MinConnCheckInterval  time.Duration `json:"min_conn_check_interval"`
@@ -148,11 +149,11 @@ func (c *DBConnection) cleanupIdleConnections() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	if c.Database == nil || c.Config.IdleConnectionTimeout <= 0 {
+	if c.Database == nil || c.Config.IdleTimeout <= 0 {
 		return
 	}
 
-	if time.Since(c.lastUsed) > c.Config.IdleConnectionTimeout {
+	if time.Since(c.lastUsed) > c.Config.IdleTimeout {
 		c.Database.Close()
 		c.state = StateClosed
 		metrics.PoolIdleClosedTotal.WithLabelValues(c.Config.Name).Inc()
@@ -160,7 +161,7 @@ func (c *DBConnection) cleanupIdleConnections() {
 		metrics.PoolOpenConnections.WithLabelValues(c.Config.Name).Set(float64(stats.OpenConnections))
 		metrics.PoolIdleConnections.WithLabelValues(c.Config.Name).Set(float64(stats.Idle))
 		logging.LogConnectionEvent(nil, "idle_connection_closed", c.Config.Name, map[string]interface{}{
-			"idle_timeout": c.Config.IdleConnectionTimeout,
+			"idle_timeout": c.Config.IdleTimeout,
 			"last_used":    c.lastUsed,
 		})
 	}
@@ -291,8 +292,11 @@ func (r *DBRegistry) AddConnection(name string, config *DBConfig) (*DBConnection
 	if config.ConnectionTimeout == 0 {
 		config.ConnectionTimeout = 10 * time.Second
 	}
-	if config.IdleConnectionTimeout == 0 {
-		config.IdleConnectionTimeout = 5 * time.Minute
+	if config.IdleTimeout == 0 {
+		config.IdleTimeout = 5 * time.Minute
+	}
+	if config.MaxConnectionLifetime == 0 {
+		config.MaxConnectionLifetime = 1 * time.Hour
 	}
 	if config.MinConnections < 0 {
 		config.MinConnections = 0
@@ -314,6 +318,7 @@ func (r *DBRegistry) AddConnection(name string, config *DBConfig) (*DBConnection
 
 	db.SetMaxOpenConns(config.MaxOpenConnections)
 	db.SetMaxIdleConns(config.MaxIdleConnections)
+	db.SetConnMaxLifetime(config.MaxConnectionLifetime)
 
 	dbc := &DBConnection{
 		Config:          config,
@@ -332,10 +337,12 @@ func (r *DBRegistry) AddConnection(name string, config *DBConfig) (*DBConnection
 	metrics.PoolActiveConnections.WithLabelValues(name).Set(0)
 
 	logging.LogConnectionEvent(nil, "connection_added", name, map[string]interface{}{
-		"min_connections":       config.MinConnections,
-		"max_open_connections":  config.MaxOpenConnections,
-		"max_idle_connections":  config.MaxIdleConnections,
-		"health_check_interval": config.HealthCheckInterval,
+		"min_connections":         config.MinConnections,
+		"max_open_connections":    config.MaxOpenConnections,
+		"max_idle_connections":    config.MaxIdleConnections,
+		"max_connection_lifetime": config.MaxConnectionLifetime,
+		"idle_timeout":            config.IdleTimeout,
+		"health_check_interval":   config.HealthCheckInterval,
 	})
 
 	if config.MinConnections > 0 {
