@@ -472,6 +472,90 @@ func (r *DBRegistry) RemoveConnection(name string) {
 	delete(r.connections, name)
 }
 
+func (r *DBRegistry) UpdateConnection(name string, config *DBConfig) (*DBConnection, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	existingConn, exists := r.connections[name]
+	if exists {
+		if existingConn.Database != nil {
+			existingConn.mu.Lock()
+			existingConn.state = StateClosed
+			existingConn.Database.Close()
+			existingConn.mu.Unlock()
+		}
+		delete(r.connections, name)
+	}
+
+	if config.HealthCheckInterval == 0 {
+		config.HealthCheckInterval = 30 * time.Second
+	}
+	if config.HealthCheckTimeout == 0 {
+		config.HealthCheckTimeout = 5 * time.Second
+	}
+	if config.ConnectionTimeout == 0 {
+		config.ConnectionTimeout = 10 * time.Second
+	}
+	if config.IdleTimeout == 0 {
+		config.IdleTimeout = 5 * time.Minute
+	}
+	if config.MaxConnectionLifetime == 0 {
+		config.MaxConnectionLifetime = 1 * time.Hour
+	}
+	if config.MinConnections < 0 {
+		config.MinConnections = 0
+	}
+	if config.MinConnections > config.MaxOpenConnections {
+		config.MinConnections = config.MaxOpenConnections
+	}
+	if config.MaxIdleConnections > config.MaxOpenConnections {
+		config.MaxIdleConnections = config.MaxOpenConnections
+	}
+	if config.MinConnections > config.MaxIdleConnections {
+		config.MaxIdleConnections = config.MinConnections
+	}
+
+	db, err := sql.Open("odbc", config.ConnectionString)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open database: %w", err)
+	}
+
+	db.SetMaxOpenConns(config.MaxOpenConnections)
+	db.SetMaxIdleConns(config.MaxIdleConnections)
+	db.SetConnMaxLifetime(config.MaxConnectionLifetime)
+
+	dbc := &DBConnection{
+		Config:          config,
+		Database:        db,
+		state:           StateUnknown,
+		lastHealthCheck: time.Now(),
+		lastUsed:        time.Now(),
+		minConnections:  config.MinConnections,
+		warmupDone:      make(chan struct{}),
+	}
+
+	r.connections[name] = dbc
+
+	metrics.PoolOpenConnections.WithLabelValues(name).Set(float64(config.MaxOpenConnections))
+	metrics.PoolIdleConnections.WithLabelValues(name).Set(0)
+	metrics.PoolActiveConnections.WithLabelValues(name).Set(0)
+
+	logging.LogConnectionEvent(nil, "connection_updated", name, map[string]interface{}{
+		"min_connections":         config.MinConnections,
+		"max_open_connections":    config.MaxOpenConnections,
+		"max_idle_connections":    config.MaxIdleConnections,
+		"max_connection_lifetime": config.MaxConnectionLifetime,
+		"idle_timeout":            config.IdleTimeout,
+		"health_check_interval":   config.HealthCheckInterval,
+	})
+
+	if config.MinConnections > 0 {
+		go dbc.warmupPool()
+	}
+
+	return dbc, nil
+}
+
 func (r *DBRegistry) ListConnections() []string {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
