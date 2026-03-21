@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/JavierLimon/openbao-teradata-secret-plugin/logging"
+	"github.com/JavierLimon/openbao-teradata-secret-plugin/metrics"
 	_ "github.com/JavierLimon/openbao-teradata-secret-plugin/odbc"
 )
 
@@ -154,6 +155,10 @@ func (c *DBConnection) cleanupIdleConnections() {
 	if time.Since(c.lastUsed) > c.Config.IdleConnectionTimeout {
 		c.Database.Close()
 		c.state = StateClosed
+		metrics.PoolIdleClosedTotal.WithLabelValues(c.Config.Name).Inc()
+		stats := c.Database.Stats()
+		metrics.PoolOpenConnections.WithLabelValues(c.Config.Name).Set(float64(stats.OpenConnections))
+		metrics.PoolIdleConnections.WithLabelValues(c.Config.Name).Set(float64(stats.Idle))
 		logging.LogConnectionEvent(nil, "idle_connection_closed", c.Config.Name, map[string]interface{}{
 			"idle_timeout": c.Config.IdleConnectionTimeout,
 			"last_used":    c.lastUsed,
@@ -220,6 +225,9 @@ func (c *DBConnection) CheckHealth() error {
 	if c.Database == nil {
 		c.state = StateClosed
 		c.healthCheckErr = fmt.Errorf("database connection is nil")
+		metrics.PoolHealthCheckDuration.WithLabelValues(c.Config.Name, "closed").Observe(time.Since(startTime).Seconds())
+		metrics.PoolHealthCheckTotal.WithLabelValues(c.Config.Name, "closed").Inc()
+		metrics.PoolConnectionErrors.WithLabelValues(c.Config.Name, "nil_connection").Inc()
 		logging.LogHealthCheck(nil, c.Config.Name, "closed", time.Since(startTime), c.healthCheckErr)
 		return c.healthCheckErr
 	}
@@ -228,13 +236,19 @@ func (c *DBConnection) CheckHealth() error {
 	defer cancel()
 
 	err := c.Database.PingContext(ctx)
+	duration := time.Since(startTime).Seconds()
 	if err != nil {
 		c.state = StateUnhealthy
 		c.healthCheckErr = fmt.Errorf("health check failed: %w", err)
+		metrics.PoolHealthCheckDuration.WithLabelValues(c.Config.Name, "unhealthy").Observe(duration)
+		metrics.PoolHealthCheckTotal.WithLabelValues(c.Config.Name, "unhealthy").Inc()
+		metrics.PoolConnectionErrors.WithLabelValues(c.Config.Name, "ping_failed").Inc()
 		logging.LogHealthCheck(nil, c.Config.Name, "unhealthy", time.Since(startTime), c.healthCheckErr)
 	} else {
 		c.state = StateHealthy
 		c.healthCheckErr = nil
+		metrics.PoolHealthCheckDuration.WithLabelValues(c.Config.Name, "healthy").Observe(duration)
+		metrics.PoolHealthCheckTotal.WithLabelValues(c.Config.Name, "healthy").Inc()
 		logging.LogHealthCheck(nil, c.Config.Name, "healthy", time.Since(startTime), nil)
 	}
 	c.lastHealthCheck = time.Now()
@@ -312,6 +326,10 @@ func (r *DBRegistry) AddConnection(name string, config *DBConfig) (*DBConnection
 	}
 
 	r.connections[name] = dbc
+
+	metrics.PoolOpenConnections.WithLabelValues(name).Set(float64(config.MaxOpenConnections))
+	metrics.PoolIdleConnections.WithLabelValues(name).Set(0)
+	metrics.PoolActiveConnections.WithLabelValues(name).Set(0)
 
 	logging.LogConnectionEvent(nil, "connection_added", name, map[string]interface{}{
 		"min_connections":       config.MinConnections,
@@ -424,6 +442,9 @@ func (r *DBRegistry) RemoveConnection(name string) {
 		conn.state = StateClosed
 		conn.Database.Close()
 		conn.mu.Unlock()
+		metrics.PoolOpenConnections.WithLabelValues(name).Set(0)
+		metrics.PoolIdleConnections.WithLabelValues(name).Set(0)
+		metrics.PoolActiveConnections.WithLabelValues(name).Set(0)
 		logging.LogConnectionEvent(nil, "connection_removed", name, nil)
 	}
 	delete(r.connections, name)
@@ -437,6 +458,30 @@ func (r *DBRegistry) ListConnections() []string {
 		names = append(names, name)
 	}
 	return names
+}
+
+func (r *DBRegistry) UpdatePoolMetrics() {
+	r.mu.RLock()
+	var connections []*DBConnection
+	for _, conn := range r.connections {
+		connections = append(connections, conn)
+	}
+	r.mu.RUnlock()
+
+	for _, conn := range connections {
+		conn.updateMetrics()
+	}
+}
+
+func (c *DBConnection) updateMetrics() {
+	if c.Database == nil {
+		return
+	}
+
+	stats := c.Database.Stats()
+	metrics.PoolOpenConnections.WithLabelValues(c.Config.Name).Set(float64(stats.OpenConnections))
+	metrics.PoolIdleConnections.WithLabelValues(c.Config.Name).Set(float64(stats.Idle))
+	metrics.PoolActiveConnections.WithLabelValues(c.Config.Name).Set(float64(stats.OpenConnections - stats.Idle))
 }
 
 func (r *DBRegistry) GetConnectionStats(name string) (state ConnectionState, openConns int, idleConns int, err error) {
@@ -455,6 +500,10 @@ func (r *DBRegistry) GetConnectionStats(name string) (state ConnectionState, ope
 
 	openConns = conn.Database.Stats().OpenConnections
 	idleConns = conn.Database.Stats().Idle
+
+	metrics.PoolOpenConnections.WithLabelValues(name).Set(float64(openConns))
+	metrics.PoolIdleConnections.WithLabelValues(name).Set(float64(idleConns))
+	metrics.PoolActiveConnections.WithLabelValues(name).Set(float64(openConns - idleConns))
 
 	return state, openConns, idleConns, err
 }
