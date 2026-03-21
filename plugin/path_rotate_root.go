@@ -3,6 +3,7 @@ package teradata
 import (
 	"context"
 
+	"github.com/JavierLimon/openbao-teradata-secret-plugin/audit"
 	"github.com/openbao/openbao/sdk/v2/framework"
 	"github.com/openbao/openbao/sdk/v2/logical"
 )
@@ -22,6 +23,8 @@ func (b *Backend) pathRotateRoot() *framework.Path {
 }
 
 func (b *Backend) pathRotateRootHandler(ctx context.Context, req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
+	_ = audit.LogRootRotation(ctx, req.Storage, true, "")
+
 	return &logical.Response{
 		Data: map[string]interface{}{
 			"rotated": true,

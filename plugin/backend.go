@@ -2,8 +2,12 @@ package teradata
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"sync"
 
+	"github.com/JavierLimon/openbao-teradata-secret-plugin/audit"
+	teradb "github.com/JavierLimon/openbao-teradata-secret-plugin/odbc"
 	"github.com/JavierLimon/openbao-teradata-secret-plugin/storage"
 	"github.com/openbao/openbao/sdk/v2/framework"
 	"github.com/openbao/openbao/sdk/v2/logical"
@@ -72,6 +76,60 @@ func (b *Backend) getDBRegistry() *storage.DBRegistry {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 	return b.dbRegistry
+}
+
+func (b *Backend) Revoke(ctx context.Context, leaseID string) error {
+	if leaseID == "" {
+		return nil
+	}
+
+	parts := strings.Split(leaseID, "/")
+	if len(parts) < 4 || parts[0] != "teradata" || parts[1] != "creds" {
+		return nil
+	}
+
+	roleName := parts[2]
+	username := parts[3]
+
+	cfg, err := getConfig(ctx, b.storage)
+	if err != nil {
+		return fmt.Errorf("failed to get config for revocation: %w", err)
+	}
+	if cfg == nil {
+		return fmt.Errorf("database configuration not found")
+	}
+
+	role, err := getRole(ctx, b.storage, roleName)
+	if err != nil {
+		return fmt.Errorf("failed to get role for revocation: %w", err)
+	}
+
+	var revokeSQL string
+	if role != nil && role.RevocationStatement != "" {
+		revokeSQL = strings.ReplaceAll(role.RevocationStatement, "{{username}}", username)
+		conn, err := teradb.Connect(cfg.ConnectionString)
+		if err == nil {
+			conn.ExecuteMultipleStatements(revokeSQL)
+			conn.Close()
+		}
+	}
+
+	dropSQL := fmt.Sprintf("DROP USER %s", username)
+	conn, err := teradb.Connect(cfg.ConnectionString)
+	if err != nil {
+		_ = audit.LogCredentialRevocation(ctx, b.storage, username, roleName, map[string]interface{}{"error": err.Error()})
+		return fmt.Errorf("failed to connect for revocation: %w", err)
+	}
+	defer conn.Close()
+
+	err = conn.ExecuteMultipleStatements(dropSQL)
+	if err != nil {
+		_ = audit.LogCredentialRevocation(ctx, b.storage, username, roleName, map[string]interface{}{"error": err.Error()})
+		return fmt.Errorf("failed to revoke credential: %w", err)
+	}
+
+	_ = audit.LogCredentialRevocation(ctx, b.storage, username, roleName, nil)
+	return nil
 }
 
 const backendHelp = `
