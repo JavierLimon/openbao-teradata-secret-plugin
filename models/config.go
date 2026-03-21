@@ -30,6 +30,7 @@ type Config struct {
 	Servers                  []string          `json:"servers"`
 	Port                     int               `json:"port"`
 	Database                 string            `json:"database"`
+	GracefulDegradationMode  bool              `json:"graceful_degradation_mode"`
 }
 
 type Role struct {

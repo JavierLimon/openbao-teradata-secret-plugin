@@ -25,12 +25,14 @@ const (
 type Backend struct {
 	*framework.Backend
 
-	storage     logical.Storage
-	mu          sync.RWMutex
-	dbRegistry  *storage.DBRegistry
-	credCache   *credentialCache
-	queryCache  *queryResultCache
-	rateLimiter *RateLimiterMiddleware
+	storage             logical.Storage
+	mu                  sync.RWMutex
+	dbRegistry          *storage.DBRegistry
+	credCache           *credentialCache
+	queryCache          *queryResultCache
+	rateLimiter         *RateLimiterMiddleware
+	degradedSince       time.Time
+	gracefulDegradation bool
 }
 
 var DefaultRateLimitConfig = RateLimitConfig{
@@ -249,6 +251,100 @@ func (b *Backend) getQueryCache() *queryResultCache {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 	return b.queryCache
+}
+
+func (b *Backend) IsDegraded() bool {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return b.gracefulDegradation
+}
+
+func (b *Backend) DegradedSince() time.Time {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return b.degradedSince
+}
+
+func (b *Backend) SetGracefulDegradation(enabled bool) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if enabled && !b.gracefulDegradation {
+		b.degradedSince = time.Now()
+	}
+	b.gracefulDegradation = enabled
+}
+
+func (b *Backend) IsPoolHealthy(region string) bool {
+	registry := b.getDBRegistry()
+	if registry == nil {
+		return false
+	}
+
+	conn, ok := registry.GetConnection(region)
+	if !ok {
+		return false
+	}
+
+	state, err := conn.GetState()
+	return err == nil && state == storage.StateHealthy
+}
+
+func (b *Backend) AreAllPoolsHealthy() bool {
+	registry := b.getDBRegistry()
+	if registry == nil {
+		return false
+	}
+
+	connectionNames := registry.ListConnections()
+	for _, name := range connectionNames {
+		if !b.IsPoolHealthy(name) {
+			return false
+		}
+	}
+	return len(connectionNames) > 0
+}
+
+func (b *Backend) GetDegradationStatus() (isDegraded bool, degradedPools []string, healthyPools []string) {
+	registry := b.getDBRegistry()
+	if registry == nil {
+		return true, nil, nil
+	}
+
+	connectionNames := registry.ListConnections()
+	for _, name := range connectionNames {
+		if b.IsPoolHealthy(name) {
+			healthyPools = append(healthyPools, name)
+		} else {
+			degradedPools = append(degradedPools, name)
+			isDegraded = true
+		}
+	}
+	return
+}
+
+func (b *Backend) CanOperate(region string) (bool, string) {
+	if b.AreAllPoolsHealthy() {
+		return true, ""
+	}
+
+	degraded, degradedPools, healthyPools := b.GetDegradationStatus()
+	if !degraded {
+		return true, ""
+	}
+
+	if region != "" && b.IsPoolHealthy(region) {
+		return true, ""
+	}
+
+	reason := "database pool is unavailable"
+	if len(degradedPools) > 0 {
+		reason = fmt.Sprintf("database pools unavailable: %v", degradedPools)
+	}
+	if len(healthyPools) > 0 {
+		reason = fmt.Sprintf("region %q pool is unavailable; healthy pools: %v", region, healthyPools)
+	}
+
+	return false, reason
 }
 
 func (b *Backend) Revoke(ctx context.Context, leaseID string) error {

@@ -114,6 +114,11 @@ func (b *Backend) pathConfig() *framework.Path {
 				Type:        framework.TypeMap,
 				Description: "Session variables to set for connections (map of key-value pairs)",
 			},
+			"graceful_degradation_mode": {
+				Type:        framework.TypeBool,
+				Description: "Enable graceful degradation mode to continue operating when database is unavailable",
+				Default:     false,
+			},
 		},
 
 		Operations: map[logical.Operation]framework.OperationHandler{
@@ -162,6 +167,7 @@ func (b *Backend) pathConfigWrite(ctx context.Context, req *logical.Request, dat
 	initialRetryInterval := data.Get("initial_retry_interval").(int)
 	maxRetryInterval := data.Get("max_retry_interval").(int)
 	retryMultiplier := data.Get("retry_multiplier").(float64)
+	gracefulDegradationMode := data.Get("graceful_degradation_mode").(bool)
 
 	var sessionVariables map[string]string
 	if rawVars, ok := data.Raw["session_variables"].(map[string]interface{}); ok {
@@ -212,27 +218,28 @@ func (b *Backend) pathConfigWrite(ctx context.Context, req *logical.Request, dat
 	}
 
 	cfg := &models.Config{
-		Region:                region,
-		ConnectionString:      connectionString,
-		MinConnections:        minConnections,
-		MaxOpenConnections:    maxOpenConnections,
-		MaxIdleConnections:    maxIdleConnections,
-		ConnectionTimeout:     connectionTimeout,
-		MaxConnectionLifetime: maxConnectionLifetime,
-		IdleTimeout:           idleTimeout,
-		SSLMode:               sslMode,
-		SSLCert:               sslCert,
-		SSLKey:                sslKey,
-		SSLRootCert:           sslRootCert,
-		SSLKeyPassword:        sslKeyPassword,
-		SSLCipherSuites:       sslCipherSuites,
-		SSLSecure:             sslSecure,
-		SSLVersion:            sslVersion,
-		SessionVariables:      sessionVariables,
-		MaxRetries:            maxRetries,
-		InitialRetryInterval:  initialRetryInterval,
-		MaxRetryInterval:      maxRetryInterval,
-		RetryMultiplier:       retryMultiplier,
+		Region:                  region,
+		ConnectionString:        connectionString,
+		MinConnections:          minConnections,
+		MaxOpenConnections:      maxOpenConnections,
+		MaxIdleConnections:      maxIdleConnections,
+		ConnectionTimeout:       connectionTimeout,
+		MaxConnectionLifetime:   maxConnectionLifetime,
+		IdleTimeout:             idleTimeout,
+		SSLMode:                 sslMode,
+		SSLCert:                 sslCert,
+		SSLKey:                  sslKey,
+		SSLRootCert:             sslRootCert,
+		SSLKeyPassword:          sslKeyPassword,
+		SSLCipherSuites:         sslCipherSuites,
+		SSLSecure:               sslSecure,
+		SSLVersion:              sslVersion,
+		SessionVariables:        sessionVariables,
+		MaxRetries:              maxRetries,
+		InitialRetryInterval:    initialRetryInterval,
+		MaxRetryInterval:        maxRetryInterval,
+		RetryMultiplier:         retryMultiplier,
+		GracefulDegradationMode: gracefulDegradationMode,
 	}
 
 	storageKey := "config"
@@ -252,24 +259,25 @@ func (b *Backend) pathConfigWrite(ctx context.Context, req *logical.Request, dat
 	b.invalidateConfigCache(region)
 
 	respData := map[string]interface{}{
-		"connection_string":       "***",
-		"min_connections":         minConnections,
-		"max_open_connections":    maxOpenConnections,
-		"max_idle_connections":    maxIdleConnections,
-		"connection_timeout":      connectionTimeout,
-		"max_connection_lifetime": maxConnectionLifetime,
-		"idle_timeout":            idleTimeout,
-		"ssl_mode":                sslMode,
-		"ssl_cert":                sslCert,
-		"ssl_key":                 sslKey,
-		"ssl_root_cert":           sslRootCert,
-		"ssl_cipher_suites":       sslCipherSuites,
-		"ssl_secure":              sslSecure,
-		"ssl_version":             sslVersion,
-		"max_retries":             maxRetries,
-		"initial_retry_interval":  initialRetryInterval,
-		"max_retry_interval":      maxRetryInterval,
-		"retry_multiplier":        retryMultiplier,
+		"connection_string":         "***",
+		"min_connections":           minConnections,
+		"max_open_connections":      maxOpenConnections,
+		"max_idle_connections":      maxIdleConnections,
+		"connection_timeout":        connectionTimeout,
+		"max_connection_lifetime":   maxConnectionLifetime,
+		"idle_timeout":              idleTimeout,
+		"ssl_mode":                  sslMode,
+		"ssl_cert":                  sslCert,
+		"ssl_key":                   sslKey,
+		"ssl_root_cert":             sslRootCert,
+		"ssl_cipher_suites":         sslCipherSuites,
+		"ssl_secure":                sslSecure,
+		"ssl_version":               sslVersion,
+		"max_retries":               maxRetries,
+		"initial_retry_interval":    initialRetryInterval,
+		"max_retry_interval":        maxRetryInterval,
+		"retry_multiplier":          retryMultiplier,
+		"graceful_degradation_mode": gracefulDegradationMode,
 	}
 	if region != "" {
 		respData["region"] = region
@@ -309,25 +317,26 @@ func (b *Backend) pathConfigRead(ctx context.Context, req *logical.Request, data
 	}
 
 	respData := map[string]interface{}{
-		"connection_string":       "***",
-		"min_connections":         cfg.MinConnections,
-		"max_open_connections":    cfg.MaxOpenConnections,
-		"max_idle_connections":    cfg.MaxIdleConnections,
-		"connection_timeout":      cfg.ConnectionTimeout,
-		"max_connection_lifetime": cfg.MaxConnectionLifetime,
-		"idle_timeout":            cfg.IdleTimeout,
-		"ssl_mode":                cfg.SSLMode,
-		"ssl_cert":                cfg.SSLCert,
-		"ssl_key":                 cfg.SSLKey,
-		"ssl_root_cert":           cfg.SSLRootCert,
-		"ssl_cipher_suites":       cfg.SSLCipherSuites,
-		"ssl_secure":              cfg.SSLSecure,
-		"ssl_version":             cfg.SSLVersion,
-		"session_variables":       cfg.SessionVariables,
-		"max_retries":             cfg.MaxRetries,
-		"initial_retry_interval":  cfg.InitialRetryInterval,
-		"max_retry_interval":      cfg.MaxRetryInterval,
-		"retry_multiplier":        cfg.RetryMultiplier,
+		"connection_string":         "***",
+		"min_connections":           cfg.MinConnections,
+		"max_open_connections":      cfg.MaxOpenConnections,
+		"max_idle_connections":      cfg.MaxIdleConnections,
+		"connection_timeout":        cfg.ConnectionTimeout,
+		"max_connection_lifetime":   cfg.MaxConnectionLifetime,
+		"idle_timeout":              cfg.IdleTimeout,
+		"ssl_mode":                  cfg.SSLMode,
+		"ssl_cert":                  cfg.SSLCert,
+		"ssl_key":                   cfg.SSLKey,
+		"ssl_root_cert":             cfg.SSLRootCert,
+		"ssl_cipher_suites":         cfg.SSLCipherSuites,
+		"ssl_secure":                cfg.SSLSecure,
+		"ssl_version":               cfg.SSLVersion,
+		"session_variables":         cfg.SessionVariables,
+		"max_retries":               cfg.MaxRetries,
+		"initial_retry_interval":    cfg.InitialRetryInterval,
+		"max_retry_interval":        cfg.MaxRetryInterval,
+		"retry_multiplier":          cfg.RetryMultiplier,
+		"graceful_degradation_mode": cfg.GracefulDegradationMode,
 	}
 	if cfg.Region != "" {
 		respData["region"] = cfg.Region
