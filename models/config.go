@@ -21,6 +21,10 @@ type Config struct {
 	SSLSecure             bool              `json:"ssl_secure"`
 	SSLVersion            string            `json:"ssl_version"`
 	SessionVariables      map[string]string `json:"session_variables"`
+	MaxRetries            int               `json:"max_retries"`
+	InitialRetryInterval  int               `json:"initial_retry_interval"`
+	MaxRetryInterval      int               `json:"max_retry_interval"`
+	RetryMultiplier       float64           `json:"retry_multiplier"`
 }
 
 type Role struct {
