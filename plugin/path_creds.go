@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/JavierLimon/openbao-teradata-secret-plugin/audit"
 	"github.com/JavierLimon/openbao-teradata-secret-plugin/models"
 	teradb "github.com/JavierLimon/openbao-teradata-secret-plugin/odbc"
 	"github.com/openbao/openbao/sdk/v2/framework"
@@ -174,6 +175,9 @@ func (b *Backend) pathCredsRead(ctx context.Context, req *logical.Request, data 
 		}
 	}
 
+	leaseID := fmt.Sprintf("teradata/creds/%s/%s", name, username)
+	_ = audit.LogCredentialCreation(ctx, req.Storage, username, name, leaseID, nil)
+
 	return resp, nil
 }
 
@@ -306,6 +310,13 @@ func (b *Backend) pathCredsBatchRead(ctx context.Context, req *logical.Request, 
 		}
 	}
 
+	for _, cred := range credentials {
+		if username, ok := cred["username"].(string); ok {
+			leaseID := fmt.Sprintf("teradata/creds/%s/%s", name, username)
+			_ = audit.LogCredentialCreation(ctx, req.Storage, username, name, leaseID, map[string]interface{}{"batch": true})
+		}
+	}
+
 	return resp, nil
 }
 
@@ -374,6 +385,9 @@ func generatePassword() string {
 
 func ensurePasswordRequirements(password string) string {
 	runes := []rune(password)
+	if len(runes) == 0 {
+		return password
+	}
 	hasLower := false
 	hasUpper := false
 	hasDigit := false

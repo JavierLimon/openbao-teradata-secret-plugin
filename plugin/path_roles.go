@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/JavierLimon/openbao-teradata-secret-plugin/audit"
 	"github.com/JavierLimon/openbao-teradata-secret-plugin/models"
 	"github.com/openbao/openbao/sdk/v2/framework"
 	"github.com/openbao/openbao/sdk/v2/logical"
@@ -147,6 +148,8 @@ func (b *Backend) pathRoleCreate(ctx context.Context, req *logical.Request, data
 		return nil, err
 	}
 
+	_ = audit.LogRoleCreation(ctx, req.Storage, name, role.DBUser, role.StatementTemplate)
+
 	return &logical.Response{
 		Data: map[string]interface{}{
 			"name":                 name,
@@ -223,6 +226,8 @@ func (b *Backend) pathRoleUpdate(ctx context.Context, req *logical.Request, data
 		return nil, err
 	}
 
+	_ = audit.LogRoleUpdate(ctx, req.Storage, name, role.DBUser, role.StatementTemplate)
+
 	return &logical.Response{
 		Data: map[string]interface{}{
 			"name":        name,
@@ -240,6 +245,8 @@ func (b *Backend) pathRoleDelete(ctx context.Context, req *logical.Request, data
 	if err != nil {
 		return nil, fmt.Errorf("error deleting role: %w", err)
 	}
+
+	_ = audit.LogRoleDeletion(ctx, req.Storage, name)
 
 	return nil, nil
 }
