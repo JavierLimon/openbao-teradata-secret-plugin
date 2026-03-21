@@ -406,6 +406,9 @@ func getConfigFieldSchema() map[string]*framework.FieldSchema {
 		"connection_timeout": {
 			Type: framework.TypeInt,
 		},
+		"session_timeout": {
+			Type: framework.TypeInt,
+		},
 		"max_connection_lifetime": {
 			Type: framework.TypeInt,
 		},

@@ -220,6 +220,16 @@ func AppendQueryTimeout(baseConnString string, queryTimeout int) string {
 	return baseConnString + fmt.Sprintf(";QUERYTIMEOUT=%d", queryTimeout)
 }
 
+func AppendSessionTimeout(baseConnString string, sessionTimeout int) string {
+	if sessionTimeout <= 0 {
+		return baseConnString
+	}
+	if strings.TrimSpace(baseConnString) == "" {
+		return fmt.Sprintf("SESSIONTIMEOUT=%d", sessionTimeout)
+	}
+	return baseConnString + fmt.Sprintf(";SESSIONTIMEOUT=%d", sessionTimeout)
+}
+
 func Connect(connString string) (*Connection, error) {
 	return ConnectWithRetry(connString, nil)
 }

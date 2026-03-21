@@ -8,6 +8,7 @@ type Config struct {
 	MaxIdleConnections       int               `json:"max_idle_connections"`
 	ConnectionTimeout        int               `json:"connection_timeout"`
 	QueryTimeout             int               `json:"query_timeout"`
+	SessionTimeout           int               `json:"session_timeout"`
 	MaxConnectionLifetime    int               `json:"max_connection_lifetime"`
 	IdleTimeout              int               `json:"idle_timeout"`
 	Username                 string            `json:"username"`

@@ -46,6 +46,10 @@ func (b *Backend) pathConfig() *framework.Path {
 				Description: "Connection timeout in seconds",
 				Default:     30,
 			},
+			"session_timeout": {
+				Type:        framework.TypeInt,
+				Description: "Session timeout in seconds (database-side limit for idle sessions)",
+			},
 			"max_connection_lifetime": {
 				Type:        framework.TypeInt,
 				Description: "Maximum connection lifetime in seconds (0 = no limit)",
@@ -158,6 +162,7 @@ func (b *Backend) pathConfigWrite(ctx context.Context, req *logical.Request, dat
 	maxOpenConnections := data.Get("max_open_connections").(int)
 	maxIdleConnections := data.Get("max_idle_connections").(int)
 	connectionTimeout := data.Get("connection_timeout").(int)
+	sessionTimeout := data.Get("session_timeout").(int)
 	maxConnectionLifetime := data.Get("max_connection_lifetime").(int)
 	idleTimeout := data.Get("idle_timeout").(int)
 	sslMode := data.Get("ssl_mode").(string)
@@ -233,6 +238,7 @@ func (b *Backend) pathConfigWrite(ctx context.Context, req *logical.Request, dat
 		MaxOpenConnections:      maxOpenConnections,
 		MaxIdleConnections:      maxIdleConnections,
 		ConnectionTimeout:       connectionTimeout,
+		SessionTimeout:          sessionTimeout,
 		MaxConnectionLifetime:   maxConnectionLifetime,
 		IdleTimeout:             idleTimeout,
 		SSLMode:                 sslMode,
@@ -274,6 +280,7 @@ func (b *Backend) pathConfigWrite(ctx context.Context, req *logical.Request, dat
 		"max_open_connections":      maxOpenConnections,
 		"max_idle_connections":      maxIdleConnections,
 		"connection_timeout":        connectionTimeout,
+		"session_timeout":           sessionTimeout,
 		"max_connection_lifetime":   maxConnectionLifetime,
 		"idle_timeout":              idleTimeout,
 		"ssl_mode":                  sslMode,
@@ -333,6 +340,7 @@ func (b *Backend) pathConfigRead(ctx context.Context, req *logical.Request, data
 		"max_open_connections":      cfg.MaxOpenConnections,
 		"max_idle_connections":      cfg.MaxIdleConnections,
 		"connection_timeout":        cfg.ConnectionTimeout,
+		"session_timeout":           cfg.SessionTimeout,
 		"max_connection_lifetime":   cfg.MaxConnectionLifetime,
 		"idle_timeout":              cfg.IdleTimeout,
 		"ssl_mode":                  cfg.SSLMode,
