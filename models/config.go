@@ -7,6 +7,7 @@ type Config struct {
 	MaxOpenConnections int    `json:"max_open_connections"`
 	MaxIdleConnections int    `json:"max_idle_connections"`
 	ConnectionTimeout  int    `json:"connection_timeout"`
+	QueryTimeout       int    `json:"query_timeout"`
 	Username           string `json:"username"`
 	Password           string `json:"password,omitempty"`
 	SSLMode            string `json:"ssl_mode"`

@@ -184,7 +184,7 @@ func (b *Backend) pathCredsRead(ctx context.Context, req *logical.Request, data 
 	}
 
 	createSQL := buildTeradataCreateUserSQL(role, username, password)
-	_, err = executeSQL(ctx, cfg.ConnectionString, createSQL)
+	_, err = executeSQL(ctx, cfg, createSQL)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create user: %w", err)
 	}
@@ -193,16 +193,16 @@ func (b *Backend) pathCredsRead(ctx context.Context, req *logical.Request, data 
 		additionalSQL := creationStatement
 		additionalSQL = strings.ReplaceAll(additionalSQL, "{{username}}", username)
 		additionalSQL = strings.ReplaceAll(additionalSQL, "{{password}}", password)
-		_, err = executeSQL(ctx, cfg.ConnectionString, additionalSQL)
+		_, err = executeSQL(ctx, cfg, additionalSQL)
 		if err != nil {
 			rollbackSQL := rollbackStatement
 			if rollbackSQL != "" {
 				rollbackSQL = strings.ReplaceAll(rollbackSQL, "{{username}}", username)
 				rollbackSQL = strings.ReplaceAll(rollbackSQL, "{{password}}", password)
-				executeSQL(ctx, cfg.ConnectionString, rollbackSQL)
+				executeSQL(ctx, cfg, rollbackSQL)
 			}
 			dropSQL := fmt.Sprintf("DROP USER %s", username)
-			executeSQL(ctx, cfg.ConnectionString, dropSQL)
+			executeSQL(ctx, cfg, dropSQL)
 			return nil, fmt.Errorf("failed to run creation statement: %w", err)
 		}
 	}
@@ -341,7 +341,7 @@ func (b *Backend) pathCredsBatchRead(ctx context.Context, req *logical.Request, 
 		}
 
 		createSQL := buildTeradataCreateUserSQL(role, username, password)
-		_, err = executeSQL(ctx, cfg.ConnectionString, createSQL)
+		_, err = executeSQL(ctx, cfg, createSQL)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create user %s: %w", username, err)
 		}
@@ -350,15 +350,15 @@ func (b *Backend) pathCredsBatchRead(ctx context.Context, req *logical.Request, 
 			additionalSQL := creationStatement
 			additionalSQL = strings.ReplaceAll(additionalSQL, "{{username}}", username)
 			additionalSQL = strings.ReplaceAll(additionalSQL, "{{password}}", password)
-			_, err = executeSQL(ctx, cfg.ConnectionString, additionalSQL)
+			_, err = executeSQL(ctx, cfg, additionalSQL)
 			if err != nil {
 				if rollbackStatement != "" {
 					rollbackSQL := strings.ReplaceAll(rollbackStatement, "{{username}}", username)
 					rollbackSQL = strings.ReplaceAll(rollbackSQL, "{{password}}", password)
-					executeSQL(ctx, cfg.ConnectionString, rollbackSQL)
+					executeSQL(ctx, cfg, rollbackSQL)
 				}
 				dropSQL := fmt.Sprintf("DROP USER %s", username)
-				executeSQL(ctx, cfg.ConnectionString, dropSQL)
+				executeSQL(ctx, cfg, dropSQL)
 				return nil, fmt.Errorf("failed to run creation statement for %s: %w", username, err)
 			}
 		}
@@ -544,9 +544,11 @@ func generateUsername(prefix string) string {
 	return fmt.Sprintf("%s_%s", prefix, suffix)
 }
 
-func executeSQL(ctx context.Context, connString, sql string) (interface{}, error) {
+func executeSQL(ctx context.Context, cfg *models.Config, sql string) (interface{}, error) {
 	var result interface{}
 	var err error
+
+	connString := teradb.AppendQueryTimeout(cfg.ConnectionString, cfg.QueryTimeout)
 
 	err = retry.Do(ctx, nil, func() error {
 		conn, connErr := teradb.Connect(connString)
@@ -686,7 +688,7 @@ func listAllLeases(ctx context.Context, storage logical.Storage) ([]*models.Cred
 	return leases, nil
 }
 
-func (b *Backend) cleanupExpiredCredentials(ctx context.Context, storage logical.Storage, connString string) (int, error) {
+func (b *Backend) cleanupExpiredCredentials(ctx context.Context, storage logical.Storage, cfg *models.Config) (int, error) {
 	entries, err := storage.List(ctx, credentialPrefix)
 	if err != nil {
 		return 0, err
@@ -703,7 +705,7 @@ func (b *Backend) cleanupExpiredCredentials(ctx context.Context, storage logical
 		}
 		if cred != nil && now.After(cred.ExpiresAt) {
 			dropSQL := fmt.Sprintf("DROP USER %s", username)
-			_, execErr := executeSQL(ctx, connString, dropSQL)
+			_, execErr := executeSQL(ctx, cfg, dropSQL)
 			if execErr == nil {
 				delErr := deleteCredential(ctx, storage, username)
 				if delErr == nil {
