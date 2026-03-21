@@ -9,6 +9,10 @@ build:
 test:
 	go test -v -count=1 ./...
 
+test-cover:
+	go test -coverprofile=coverage.out ./...
+	go tool cover -html=coverage.out -o coverage.html
+
 test-unit:
 	go test -v -count=1 ./...
 
