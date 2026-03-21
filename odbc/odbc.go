@@ -30,6 +30,32 @@ var sqlInjectionPatterns = []string{
 	"waitfor", "delay", "0x", "char(", "nchar(", "varchar(",
 }
 
+var invalidConnectionStringChars = []string{
+	";", "--", "/*", "*/", "'", "\"", "\\", "\x00",
+}
+
+var requiredConnectionParams = []string{
+	"DSN",
+	"SERVER",
+}
+
+type ConnectionStringConfig struct {
+	DSN      string
+	SERVER   string
+	UID      string
+	PWD      string
+	DATABASE string
+}
+
+type ConnectionStringValidationError struct {
+	Field   string
+	Message string
+}
+
+func (e *ConnectionStringValidationError) Error() string {
+	return fmt.Sprintf("connection string validation failed for field '%s': %s", e.Field, e.Message)
+}
+
 type Connection struct {
 	connString      string
 	connected       bool
@@ -546,4 +572,93 @@ func (c *Connection) ExecuteMultipleStatements(sqlStatements string) error {
 	}
 
 	return nil
+}
+
+func ParseConnectionString(connString string) (*ConnectionStringConfig, error) {
+	if strings.TrimSpace(connString) == "" {
+		return nil, errors.New("connection string cannot be empty")
+	}
+
+	config := &ConnectionStringConfig{}
+	parts := strings.Split(connString, ";")
+
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+
+		idx := strings.Index(part, "=")
+		if idx == -1 {
+			return nil, fmt.Errorf("invalid connection string format: missing '=' in '%s'", part)
+		}
+
+		key := strings.ToUpper(strings.TrimSpace(part[:idx]))
+		value := strings.TrimSpace(part[idx+1:])
+
+		switch key {
+		case "DSN":
+			config.DSN = value
+		case "SERVER":
+			config.SERVER = value
+		case "UID":
+			config.UID = value
+		case "PWD":
+			config.PWD = value
+		case "DATABASE":
+			config.DATABASE = value
+		}
+	}
+
+	return config, nil
+}
+
+func ValidateConnectionString(connString string) error {
+	if strings.TrimSpace(connString) == "" {
+		return errors.New("connection string cannot be empty")
+	}
+
+	for _, char := range invalidConnectionStringChars {
+		if strings.Contains(connString, char) {
+			return fmt.Errorf("connection string contains invalid character: '%s'", char)
+		}
+	}
+
+	parsed, err := ParseConnectionString(connString)
+	if err != nil {
+		return err
+	}
+
+	hasDSN := parsed.DSN != ""
+	hasServer := parsed.SERVER != ""
+
+	if !hasDSN && !hasServer {
+		return errors.New("connection string must contain either DSN or SERVER parameter")
+	}
+
+	if parsed.UID != "" {
+		if err := ValidateUsername(parsed.UID); err != nil {
+			return fmt.Errorf("invalid UID: %w", err)
+		}
+	}
+
+	return nil
+}
+
+func ContainsSQLInjectionPattern(value string) bool {
+	upperValue := strings.ToUpper(value)
+	for _, pattern := range sqlInjectionPatterns {
+		if strings.Contains(upperValue, pattern) {
+			return true
+		}
+	}
+	return false
+}
+
+func SanitizeConnectionStringParameter(value string) string {
+	sanitized := strings.TrimSpace(value)
+	for _, char := range invalidConnectionStringChars {
+		sanitized = strings.ReplaceAll(sanitized, char, "")
+	}
+	return sanitized
 }
