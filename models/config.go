@@ -11,6 +11,7 @@ type Config struct {
 
 type Role struct {
 	Name                string `json:"name"`
+	Version             int    `json:"version"`
 	DBUser              string `json:"db_user"`
 	UsernamePrefix      string `json:"username_prefix"`
 	DBPassword          string `json:"db_password,omitempty"`
@@ -30,6 +31,8 @@ type Role struct {
 	BatchSize           int    `json:"batch_size"`
 	MaxCredentials      int    `json:"max_credentials"`
 }
+
+const RoleVersion = 2
 
 type Statement struct {
 	Name                string `json:"name"`
