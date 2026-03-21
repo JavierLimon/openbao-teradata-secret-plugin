@@ -4,7 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	teradb "github.com/JavierLimon/openbao-teradata-secret-plugin/odbc"
+	"github.com/JavierLimon/openbao-teradata-secret-plugin/odbc"
+	"github.com/JavierLimon/openbao-teradata-secret-plugin/retry"
 	"github.com/openbao/openbao/sdk/v2/framework"
 	"github.com/openbao/openbao/sdk/v2/logical"
 )
@@ -33,7 +34,7 @@ func (b *Backend) pathRevokeCreds() *framework.Path {
 func (b *Backend) pathRevokeCredsHandler(ctx context.Context, req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
 	username := data.Get("username").(string)
 
-	if err := teradb.ValidateUsername(username); err != nil {
+	if err := odbc.ValidateUsername(username); err != nil {
 		return nil, fmt.Errorf("invalid username: %w", err)
 	}
 
@@ -58,22 +59,30 @@ func (b *Backend) pathRevokeCredsHandler(ctx context.Context, req *logical.Reque
 		return nil, fmt.Errorf("database configuration not found")
 	}
 
-	conn, err := teradb.Connect(cfg.ConnectionString)
+	var conn *odbc.Connection
+	err = retry.Do(ctx, nil, func() error {
+		conn, err = odbc.Connect(cfg.ConnectionString)
+		return err
+	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to connect to database: %w", err)
+		return nil, fmt.Errorf("failed to connect to database after retries: %w", err)
 	}
 	defer conn.Close()
 
 	if role != nil && role.RevocationStatement != "" {
 		revocationSQL := role.RevocationStatement
 		revocationSQL = replaceVariables(revocationSQL, username, "")
-		err = conn.ExecuteMultipleStatements(revocationSQL)
+		err = retry.Do(ctx, nil, func() error {
+			return conn.ExecuteMultipleStatements(revocationSQL)
+		})
 		if err != nil {
 			return nil, fmt.Errorf("failed to execute revocation statement: %w", err)
 		}
 	}
 
-	err = teradb.DropUser(conn.DB(), username)
+	err = retry.Do(ctx, nil, func() error {
+		return odbc.DropUser(conn.DB(), username)
+	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to drop user: %w", err)
 	}

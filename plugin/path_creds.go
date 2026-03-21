@@ -12,6 +12,7 @@ import (
 	"github.com/JavierLimon/openbao-teradata-secret-plugin/audit"
 	"github.com/JavierLimon/openbao-teradata-secret-plugin/models"
 	teradb "github.com/JavierLimon/openbao-teradata-secret-plugin/odbc"
+	"github.com/JavierLimon/openbao-teradata-secret-plugin/retry"
 	"github.com/JavierLimon/openbao-teradata-secret-plugin/webhook"
 	"github.com/openbao/openbao/sdk/v2/framework"
 	"github.com/openbao/openbao/sdk/v2/logical"
@@ -544,18 +545,28 @@ func generateUsername(prefix string) string {
 }
 
 func executeSQL(ctx context.Context, connString, sql string) (interface{}, error) {
-	conn, err := teradb.Connect(connString)
-	if err != nil {
-		return nil, err
-	}
-	defer conn.Close()
+	var result interface{}
+	var err error
 
-	err = conn.ExecuteMultipleStatements(sql)
+	err = retry.Do(ctx, nil, func() error {
+		conn, connErr := teradb.Connect(connString)
+		if connErr != nil {
+			return connErr
+		}
+		defer conn.Close()
+
+		execErr := conn.ExecuteMultipleStatements(sql)
+		if execErr != nil {
+			return execErr
+		}
+		return nil
+	})
+
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("executeSQL failed after retries: %w", err)
 	}
 
-	return nil, nil
+	return result, nil
 }
 
 func executeGrantStatements(ctx context.Context, connString, grantStatements string) error {
@@ -563,13 +574,23 @@ func executeGrantStatements(ctx context.Context, connString, grantStatements str
 		return nil
 	}
 
-	conn, err := teradb.Connect(connString)
-	if err != nil {
-		return err
-	}
-	defer conn.Close()
+	var err error
 
-	return conn.ExecuteGrantStatements(grantStatements)
+	err = retry.Do(ctx, nil, func() error {
+		conn, connErr := teradb.Connect(connString)
+		if connErr != nil {
+			return connErr
+		}
+		defer conn.Close()
+
+		return conn.ExecuteGrantStatements(grantStatements)
+	})
+
+	if err != nil {
+		return fmt.Errorf("executeGrantStatements failed after retries: %w", err)
+	}
+
+	return nil
 }
 
 func storeCredential(ctx context.Context, storage logical.Storage, username string, cred *models.Credential) error {
