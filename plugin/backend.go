@@ -62,6 +62,8 @@ func (b *Backend) paths() []*framework.Path {
 		b.pathRotateRoot(),
 		b.pathCreds(),
 		b.pathCredsBatch(),
+		b.pathRenewCreds(),
+		b.pathRevokeCreds(),
 		b.pathHealth(),
 		b.pathVersion(),
 		b.pathPoolStats(),

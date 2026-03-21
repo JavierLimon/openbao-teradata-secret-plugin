@@ -62,6 +62,10 @@ func (c *Connection) Close() error {
 	return c.db.Close()
 }
 
+func (c *Connection) DB() *sql.DB {
+	return c.db
+}
+
 func (c *Connection) Ping() error {
 	if !c.connected || c.db == nil {
 		return ErrNotConnected

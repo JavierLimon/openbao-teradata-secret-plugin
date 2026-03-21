@@ -15,6 +15,10 @@ import (
 	"github.com/openbao/openbao/sdk/v2/logical"
 )
 
+const (
+	credentialPrefix = "creds/"
+)
+
 func (b *Backend) pathCreds() *framework.Path {
 	return &framework.Path{
 		Pattern:         "creds/" + framework.GenericNameRegex("name"),
@@ -139,6 +143,19 @@ func (b *Backend) pathCredsRead(ctx context.Context, req *logical.Request, data 
 	ttl := time.Duration(role.DefaultTTL) * time.Second
 	maxTTL := time.Duration(role.MaxTTL) * time.Second
 
+	expiresAt := time.Now().Add(ttl)
+
+	cred := &models.Credential{
+		Username:  username,
+		RoleName:  name,
+		CreatedAt: time.Now(),
+		ExpiresAt: expiresAt,
+	}
+
+	if err := storeCredential(ctx, req.Storage, username, cred); err != nil {
+		return nil, fmt.Errorf("failed to store credential: %w", err)
+	}
+
 	resp := &logical.Response{
 		Data: map[string]interface{}{
 			"username": username,
@@ -247,6 +264,17 @@ func (b *Backend) pathCredsBatchRead(ctx context.Context, req *logical.Request, 
 
 		ttl := time.Duration(role.DefaultTTL) * time.Second
 		maxTTL := time.Duration(role.MaxTTL) * time.Second
+		expiresAt := time.Now().Add(ttl)
+
+		credModel := &models.Credential{
+			Username:  username,
+			RoleName:  name,
+			CreatedAt: time.Now(),
+			ExpiresAt: expiresAt,
+		}
+		if err := storeCredential(ctx, req.Storage, username, credModel); err != nil {
+			return nil, fmt.Errorf("failed to store credential for %s: %w", username, err)
+		}
 
 		cred := map[string]interface{}{
 			"username": username,
@@ -425,4 +453,33 @@ func executeGrantStatements(ctx context.Context, connString, grantStatements str
 	defer conn.Close()
 
 	return conn.ExecuteGrantStatements(grantStatements)
+}
+
+func storeCredential(ctx context.Context, storage logical.Storage, username string, cred *models.Credential) error {
+	entry, err := logical.StorageEntryJSON(credentialPrefix+username, cred)
+	if err != nil {
+		return err
+	}
+	return storage.Put(ctx, entry)
+}
+
+func getCredential(ctx context.Context, storage logical.Storage, username string) (*models.Credential, error) {
+	entry, err := storage.Get(ctx, credentialPrefix+username)
+	if err != nil {
+		return nil, err
+	}
+	if entry == nil {
+		return nil, nil
+	}
+
+	var cred models.Credential
+	if err := entry.DecodeJSON(&cred); err != nil {
+		return nil, err
+	}
+
+	return &cred, nil
+}
+
+func deleteCredential(ctx context.Context, storage logical.Storage, username string) error {
+	return storage.Delete(ctx, credentialPrefix+username)
 }
