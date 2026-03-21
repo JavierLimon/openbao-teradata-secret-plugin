@@ -153,7 +153,7 @@ func CollectPoolMetricsForRegistry(reg *storage.DBRegistry) *MetricsResponse {
 			poolMetric.MaxOpenConnections = conn.Config.MaxOpenConnections
 			poolMetric.MinConnections = conn.Config.MinConnections
 			poolMetric.ConnectionTimeout = conn.Config.ConnectionTimeout
-			poolMetric.IdleTimeout = conn.Config.IdleConnectionTimeout
+			poolMetric.IdleTimeout = conn.Config.IdleTimeout
 			poolMetric.HealthCheckInterval = conn.Config.HealthCheckInterval
 		}
 

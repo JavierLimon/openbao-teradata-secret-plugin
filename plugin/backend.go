@@ -137,6 +137,7 @@ func (b *Backend) paths() []*framework.Path {
 		b.pathLeaseInfo(),
 		b.pathCleanupExpired(),
 		b.pathLeaseLookup(),
+		b.pathExtendLease(),
 		b.pathHealth(),
 		b.pathReadiness(),
 		b.pathLiveness(),
