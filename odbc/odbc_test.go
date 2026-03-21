@@ -1,7 +1,9 @@
 package odbc
 
 import (
+	"context"
 	"testing"
+	"time"
 )
 
 func TestValidateUsername(t *testing.T) {
@@ -47,4 +49,96 @@ func TestValidateUsername(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestConnectionValidation(t *testing.T) {
+	conn := &Connection{
+		connected: false,
+		db:        nil,
+	}
+
+	if err := conn.Validate(); err != ErrNotConnected {
+		t.Errorf("Validate() expected ErrNotConnected for unconnected connection, got: %v", err)
+	}
+
+	conn.connected = true
+	conn.db = nil
+
+	if err := conn.Validate(); err != ErrNotConnected {
+		t.Errorf("Validate() expected ErrNotConnected for nil db, got: %v", err)
+	}
+}
+
+func TestConnectionLastValidated(t *testing.T) {
+	conn := &Connection{}
+
+	ts := conn.LastValidated()
+	if !ts.IsZero() {
+		t.Errorf("LastValidated() expected zero time for new connection, got: %v", ts)
+	}
+}
+
+func TestConnectionIsHealthy(t *testing.T) {
+	conn := &Connection{}
+
+	if conn.IsHealthy() {
+		t.Errorf("IsHealthy() expected false for new connection")
+	}
+
+	conn.connected = true
+	conn.db = nil
+
+	if conn.IsHealthy() {
+		t.Errorf("IsHealthy() expected false when db is nil")
+	}
+}
+
+func TestConnectionSetKeepAliveInterval(t *testing.T) {
+	conn := &Connection{}
+
+	conn.SetKeepAliveInterval(60 * time.Second)
+
+	conn.mu.RLock()
+	interval := conn.keepAliveInt
+	conn.mu.RUnlock()
+
+	if interval != 60*time.Second {
+		t.Errorf("SetKeepAliveInterval() expected 60s, got: %v", interval)
+	}
+}
+
+func TestConnectionKeepAliveLifecycle(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	conn := &Connection{
+		connected: true,
+	}
+
+	conn.SetKeepAliveInterval(100 * time.Millisecond)
+	conn.StartKeepAlive(ctx)
+
+	time.Sleep(50 * time.Millisecond)
+	conn.StopKeepAlive()
+
+	select {
+	case <-conn.keepAliveDone:
+	case <-time.After(time.Second):
+		t.Errorf("StopKeepAlive() should have closed keepAliveDone channel")
+	}
+}
+
+func TestConnectionStopKeepAliveTwice(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	conn := &Connection{
+		connected: true,
+	}
+
+	conn.SetKeepAliveInterval(100 * time.Millisecond)
+	conn.StartKeepAlive(ctx)
+
+	time.Sleep(50 * time.Millisecond)
+
+	conn.StopKeepAlive()
+	conn.StopKeepAlive()
 }
