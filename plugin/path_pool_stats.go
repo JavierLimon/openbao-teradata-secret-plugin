@@ -42,41 +42,56 @@ func (b *Backend) pathPoolStatsRead(ctx context.Context, req *logical.Request, d
 	pools := make([]map[string]interface{}, 0)
 	totalActive := 0
 	totalIdle := 0
+	totalInUse := 0
+	totalWaitCount := int64(0)
 	totalErrors := 0
 
 	for _, name := range connectionNames {
-		state, openConns, idleConns, connErr := registry.GetConnectionStats(name)
+		stats, connErr := registry.GetDetailedConnectionStats(name)
 
 		poolInfo := map[string]interface{}{
-			"name":              name,
-			"active":            openConns - idleConns,
-			"idle":              idleConns,
-			"total":             openConns,
-			"min":               cfg.MinConnections,
-			"state":             stateToString(state),
-			"last_health_check": nil,
-			"error":             nil,
+			"name":                name,
+			"active":              stats.OpenConnections - stats.Idle,
+			"idle":                stats.Idle,
+			"in_use":              stats.InUse,
+			"total":               stats.OpenConnections,
+			"max_open":            stats.MaxOpen,
+			"min":                 stats.MinConnections,
+			"state":               stateToString(stats.State),
+			"wait_count":          stats.WaitCount,
+			"wait_duration_nanos": stats.WaitDurationNanos,
+			"max_idle_closed":     stats.MaxIdleClosed,
+			"max_lifetime_closed": stats.MaxLifetimeClosed,
+			"last_health_check":   stats.LastHealthCheck,
+			"error":               nil,
 		}
 
 		if connErr != nil {
 			poolInfo["error"] = connErr.Error()
 			totalErrors++
+		} else if stats.HealthError != nil {
+			poolInfo["error"] = stats.HealthError.Error()
+			totalErrors++
 		}
 
-		totalActive += openConns - idleConns
-		totalIdle += idleConns
+		totalActive += stats.OpenConnections - stats.Idle
+		totalIdle += stats.Idle
+		totalInUse += stats.InUse
+		totalWaitCount += stats.WaitCount
 
 		pools = append(pools, poolInfo)
 	}
 
 	return &logical.Response{
 		Data: map[string]interface{}{
-			"initialized":  true,
-			"total_pools":  len(pools),
-			"total_active": totalActive,
-			"total_idle":   totalIdle,
-			"total_errors": totalErrors,
-			"pools":        pools,
+			"initialized":      true,
+			"total_pools":      len(pools),
+			"total_active":     totalActive,
+			"total_idle":       totalIdle,
+			"total_in_use":     totalInUse,
+			"total_wait_count": totalWaitCount,
+			"total_errors":     totalErrors,
+			"pools":            pools,
 		},
 	}, nil
 }
