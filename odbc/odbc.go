@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -216,6 +217,56 @@ func AppendQueryTimeout(baseConnString string, queryTimeout int) string {
 		return fmt.Sprintf("QUERYTIMEOUT=%d", queryTimeout)
 	}
 	return baseConnString + fmt.Sprintf(";QUERYTIMEOUT=%d", queryTimeout)
+}
+
+var (
+	ErrEmptyTemplate    = errors.New("connection string template cannot be empty")
+	ErrMissingParameter = errors.New("missing required parameter in template")
+	ErrInvalidParameter = errors.New("invalid parameter value")
+)
+
+func ValidateConnectionStringParameter(value string) error {
+	if value == "" {
+		return ErrInvalidParameter
+	}
+	upperValue := strings.ToUpper(value)
+	for _, pattern := range sqlInjectionPatterns {
+		if strings.Contains(upperValue, strings.ToUpper(pattern)) {
+			return fmt.Errorf("%w: potentially dangerous pattern '%s'", ErrInvalidParameter, pattern)
+		}
+	}
+	return nil
+}
+
+func BuildConnectionStringFromTemplate(template string, params map[string]string) (string, error) {
+	if strings.TrimSpace(template) == "" {
+		return "", ErrEmptyTemplate
+	}
+
+	if params == nil {
+		params = make(map[string]string)
+	}
+
+	result := template
+
+	for key, value := range params {
+		if value == "" {
+			continue
+		}
+		if err := ValidateConnectionStringParameter(value); err != nil {
+			return "", fmt.Errorf("parameter %s: %w", key, err)
+		}
+		placeholder := fmt.Sprintf("{{%s}}", key)
+		result = strings.ReplaceAll(result, placeholder, value)
+	}
+
+	re := regexp.MustCompile(`\{\{([^}]+)\}\}`)
+	unresolved := re.FindAllString(result, -1)
+	if len(unresolved) > 0 {
+		return "", fmt.Errorf("%w: %s", ErrMissingParameter, strings.Join(unresolved, ", "))
+	}
+
+	return result, nil
 }
 
 func Connect(connString string) (*Connection, error) {

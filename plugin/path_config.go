@@ -3,6 +3,8 @@ package teradata
 import (
 	"context"
 	"fmt"
+	"regexp"
+	"strings"
 
 	"github.com/JavierLimon/openbao-teradata-secret-plugin/models"
 	"github.com/JavierLimon/openbao-teradata-secret-plugin/security"
@@ -24,7 +26,26 @@ func (b *Backend) pathConfig() *framework.Path {
 			"connection_string": {
 				Type:        framework.TypeString,
 				Description: "ODBC connection string for Teradata",
-				Required:    true,
+			},
+			"connection_string_template": {
+				Type:        framework.TypeString,
+				Description: "ODBC connection string template with placeholders (e.g., DSN={{dsn}};SERVER={{server}};PORT={{port}};UID={{username}};PWD={{password}})",
+			},
+			"server": {
+				Type:        framework.TypeString,
+				Description: "Teradata server hostname",
+			},
+			"servers": {
+				Type:        framework.TypeString,
+				Description: "Teradata server hostnames (comma-separated for multi-node)",
+			},
+			"port": {
+				Type:        framework.TypeInt,
+				Description: "Teradata server port",
+			},
+			"database": {
+				Type:        framework.TypeString,
+				Description: "Default database name",
 			},
 			"min_connections": {
 				Type:        framework.TypeInt,
@@ -115,9 +136,26 @@ func (b *Backend) pathConfigWrite(ctx context.Context, req *logical.Request, dat
 		region = r
 	}
 	connectionString := data.Get("connection_string").(string)
+	connectionStringTemplate := data.Get("connection_string_template").(string)
 
-	if err := security.ValidateConnectionString(connectionString); err != nil {
-		return nil, fmt.Errorf("invalid connection string: %w", err)
+	if connectionString == "" && connectionStringTemplate == "" {
+		return nil, fmt.Errorf("either connection_string or connection_string_template is required")
+	}
+
+	if connectionString != "" && connectionStringTemplate != "" {
+		return nil, fmt.Errorf("only one of connection_string or connection_string_template may be provided, not both")
+	}
+
+	if connectionString != "" {
+		if err := security.ValidateConnectionString(connectionString); err != nil {
+			return nil, fmt.Errorf("invalid connection string: %w", err)
+		}
+	}
+
+	if connectionStringTemplate != "" {
+		if err := validateConnectionStringTemplate(connectionStringTemplate); err != nil {
+			return nil, fmt.Errorf("invalid connection string template: %w", err)
+		}
 	}
 
 	minConnections := data.Get("min_connections").(int)
@@ -134,6 +172,12 @@ func (b *Backend) pathConfigWrite(ctx context.Context, req *logical.Request, dat
 	sslCipherSuites := data.Get("ssl_cipher_suites").(string)
 	sslSecure := data.Get("ssl_secure").(bool)
 	sslVersion := data.Get("ssl_version").(string)
+	server := data.Get("server").(string)
+	servers := data.Get("servers").(string)
+	port := data.Get("port").(int)
+	database := data.Get("database").(string)
+	username := data.Get("username").(string)
+	password := data.Get("password").(string)
 
 	if minConnections < 0 {
 		return nil, fmt.Errorf("min_connections cannot be negative")
@@ -157,22 +201,29 @@ func (b *Backend) pathConfigWrite(ctx context.Context, req *logical.Request, dat
 	}
 
 	cfg := &models.Config{
-		Region:                region,
-		ConnectionString:      connectionString,
-		MinConnections:        minConnections,
-		MaxOpenConnections:    maxOpenConnections,
-		MaxIdleConnections:    maxIdleConnections,
-		ConnectionTimeout:     connectionTimeout,
-		MaxConnectionLifetime: maxConnectionLifetime,
-		IdleTimeout:           idleTimeout,
-		SSLMode:               sslMode,
-		SSLCert:               sslCert,
-		SSLKey:                sslKey,
-		SSLRootCert:           sslRootCert,
-		SSLKeyPassword:        sslKeyPassword,
-		SSLCipherSuites:       sslCipherSuites,
-		SSLSecure:             sslSecure,
-		SSLVersion:            sslVersion,
+		Region:                   region,
+		ConnectionString:         connectionString,
+		ConnectionStringTemplate: connectionStringTemplate,
+		Server:                   server,
+		Servers:                  servers,
+		Port:                     port,
+		Database:                 database,
+		Username:                 username,
+		Password:                 password,
+		MinConnections:           minConnections,
+		MaxOpenConnections:       maxOpenConnections,
+		MaxIdleConnections:       maxIdleConnections,
+		ConnectionTimeout:        connectionTimeout,
+		MaxConnectionLifetime:    maxConnectionLifetime,
+		IdleTimeout:              idleTimeout,
+		SSLMode:                  sslMode,
+		SSLCert:                  sslCert,
+		SSLKey:                   sslKey,
+		SSLRootCert:              sslRootCert,
+		SSLKeyPassword:           sslKeyPassword,
+		SSLCipherSuites:          sslCipherSuites,
+		SSLSecure:                sslSecure,
+		SSLVersion:               sslVersion,
 	}
 
 	storageKey := "config"
@@ -192,26 +243,35 @@ func (b *Backend) pathConfigWrite(ctx context.Context, req *logical.Request, dat
 	b.invalidateConfigCache(region)
 
 	respData := map[string]interface{}{
-		"connection_string":       "***",
-		"min_connections":         minConnections,
-		"max_open_connections":    maxOpenConnections,
-		"max_idle_connections":    maxIdleConnections,
-		"connection_timeout":      connectionTimeout,
-		"max_connection_lifetime": maxConnectionLifetime,
-		"idle_timeout":            idleTimeout,
-		"ssl_mode":                sslMode,
-		"ssl_cert":                sslCert,
-		"ssl_key":                 sslKey,
-		"ssl_root_cert":           sslRootCert,
-		"ssl_cipher_suites":       sslCipherSuites,
-		"ssl_secure":              sslSecure,
-		"ssl_version":             sslVersion,
+		"connection_string":          "***",
+		"connection_string_template": "***",
+		"server":                     server,
+		"servers":                    servers,
+		"port":                       port,
+		"database":                   database,
+		"username":                   username,
+		"min_connections":            minConnections,
+		"max_open_connections":       maxOpenConnections,
+		"max_idle_connections":       maxIdleConnections,
+		"connection_timeout":         connectionTimeout,
+		"max_connection_lifetime":    maxConnectionLifetime,
+		"idle_timeout":               idleTimeout,
+		"ssl_mode":                   sslMode,
+		"ssl_cert":                   sslCert,
+		"ssl_key":                    sslKey,
+		"ssl_root_cert":              sslRootCert,
+		"ssl_cipher_suites":          sslCipherSuites,
+		"ssl_secure":                 sslSecure,
+		"ssl_version":                sslVersion,
 	}
 	if region != "" {
 		respData["region"] = region
 	}
 	if sslKeyPassword != "" {
 		respData["ssl_key_password"] = "***"
+	}
+	if password != "" {
+		respData["password"] = "***"
 	}
 
 	return &logical.Response{
@@ -245,26 +305,35 @@ func (b *Backend) pathConfigRead(ctx context.Context, req *logical.Request, data
 	}
 
 	respData := map[string]interface{}{
-		"connection_string":       "***",
-		"min_connections":         cfg.MinConnections,
-		"max_open_connections":    cfg.MaxOpenConnections,
-		"max_idle_connections":    cfg.MaxIdleConnections,
-		"connection_timeout":      cfg.ConnectionTimeout,
-		"max_connection_lifetime": cfg.MaxConnectionLifetime,
-		"idle_timeout":            cfg.IdleTimeout,
-		"ssl_mode":                cfg.SSLMode,
-		"ssl_cert":                cfg.SSLCert,
-		"ssl_key":                 cfg.SSLKey,
-		"ssl_root_cert":           cfg.SSLRootCert,
-		"ssl_cipher_suites":       cfg.SSLCipherSuites,
-		"ssl_secure":              cfg.SSLSecure,
-		"ssl_version":             cfg.SSLVersion,
+		"connection_string":          "***",
+		"connection_string_template": "***",
+		"server":                     cfg.Server,
+		"servers":                    cfg.Servers,
+		"port":                       cfg.Port,
+		"database":                   cfg.Database,
+		"username":                   cfg.Username,
+		"min_connections":            cfg.MinConnections,
+		"max_open_connections":       cfg.MaxOpenConnections,
+		"max_idle_connections":       cfg.MaxIdleConnections,
+		"connection_timeout":         cfg.ConnectionTimeout,
+		"max_connection_lifetime":    cfg.MaxConnectionLifetime,
+		"idle_timeout":               cfg.IdleTimeout,
+		"ssl_mode":                   cfg.SSLMode,
+		"ssl_cert":                   cfg.SSLCert,
+		"ssl_key":                    cfg.SSLKey,
+		"ssl_root_cert":              cfg.SSLRootCert,
+		"ssl_cipher_suites":          cfg.SSLCipherSuites,
+		"ssl_secure":                 cfg.SSLSecure,
+		"ssl_version":                cfg.SSLVersion,
 	}
 	if cfg.Region != "" {
 		respData["region"] = cfg.Region
 	}
 	if cfg.SSLKeyPassword != "" {
 		respData["ssl_key_password"] = "***"
+	}
+	if cfg.Password != "" {
+		respData["password"] = "***"
 	}
 
 	return &logical.Response{
@@ -309,6 +378,38 @@ func getConfig(ctx context.Context, storage logical.Storage) (*models.Config, er
 	}
 
 	return &cfg, nil
+}
+
+func validateConnectionStringTemplate(template string) error {
+	if strings.TrimSpace(template) == "" {
+		return fmt.Errorf("template cannot be empty")
+	}
+	re := regexp.MustCompile(`\{\{([^}]+)\}\}`)
+	placeholders := re.FindAllString(template, -1)
+	if len(placeholders) == 0 {
+		return fmt.Errorf("template must contain at least one placeholder (e.g., {{dsn}})")
+	}
+	validParams := map[string]bool{
+		"dsn":         true,
+		"server":      true,
+		"servers":     true,
+		"port":        true,
+		"database":    true,
+		"username":    true,
+		"password":    true,
+		"sslmode":     true,
+		"sslcert":     true,
+		"sslkey":      true,
+		"sslrootcert": true,
+		"account":     true,
+	}
+	for _, ph := range placeholders {
+		param := strings.ToLower(strings.Trim(ph, "{}"))
+		if !validParams[param] {
+			return fmt.Errorf("unknown placeholder %s, valid placeholders are: dsn, server, servers, port, database, username, password, sslmode, sslcert, sslkey, sslrootcert, account", ph)
+		}
+	}
+	return nil
 }
 
 func getConfigByRegion(ctx context.Context, storage logical.Storage, region string) (*models.Config, error) {
