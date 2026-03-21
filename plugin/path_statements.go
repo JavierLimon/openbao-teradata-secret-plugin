@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/JavierLimon/openbao-teradata-secret-plugin/models"
+	"github.com/JavierLimon/openbao-teradata-secret-plugin/security"
 	"github.com/openbao/openbao/sdk/v2/framework"
 	"github.com/openbao/openbao/sdk/v2/logical"
 )
@@ -85,12 +86,21 @@ func (b *Backend) pathStatementExistenceCheck(ctx context.Context, req *logical.
 func (b *Backend) pathStatementWrite(ctx context.Context, req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
 	name := data.Get("name").(string)
 
+	creationStatement := data.Get("creation_statement").(string)
+	revocationStatement := data.Get("revocation_statement").(string)
+	rollbackStatement := data.Get("rollback_statement").(string)
+	renewalStatement := data.Get("renewal_statement").(string)
+
+	if err := security.ValidateStatementTemplates(creationStatement, revocationStatement, rollbackStatement, renewalStatement); err != nil {
+		return nil, fmt.Errorf("SQL statement validation failed: %w", err)
+	}
+
 	statement := &models.Statement{
 		Name:                name,
-		CreationStatement:   data.Get("creation_statement").(string),
-		RevocationStatement: data.Get("revocation_statement").(string),
-		RollbackStatement:   data.Get("rollback_statement").(string),
-		RenewalStatement:    data.Get("renewal_statement").(string),
+		CreationStatement:   creationStatement,
+		RevocationStatement: revocationStatement,
+		RollbackStatement:   rollbackStatement,
+		RenewalStatement:    renewalStatement,
 	}
 
 	entry, err := logical.StorageEntryJSON("statements/"+name, statement)

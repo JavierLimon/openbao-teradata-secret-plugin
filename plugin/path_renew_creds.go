@@ -8,6 +8,7 @@ import (
 
 	"github.com/JavierLimon/openbao-teradata-secret-plugin/odbc"
 	"github.com/JavierLimon/openbao-teradata-secret-plugin/retry"
+	"github.com/JavierLimon/openbao-teradata-secret-plugin/security"
 	"github.com/openbao/openbao/sdk/v2/framework"
 	"github.com/openbao/openbao/sdk/v2/logical"
 )
@@ -65,6 +66,10 @@ func (b *Backend) pathRenewCredsHandler(ctx context.Context, req *logical.Reques
 	}
 
 	newPassword := generatePassword()
+
+	if err := security.ValidatePassword(newPassword); err != nil {
+		return nil, fmt.Errorf("generated password validation failed: %w", err)
+	}
 
 	var conn *odbc.Connection
 	err = retry.Do(ctx, nil, func() error {

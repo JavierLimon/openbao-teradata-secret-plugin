@@ -123,7 +123,7 @@ func TestPathRoleCreate(t *testing.T) {
 					"db_password":        tt.dbPassword,
 					"default_ttl":        tt.defaultTTL,
 					"max_ttl":            tt.maxTTL,
-					"creation_statement": "CREATE USER test",
+					"creation_statement": "GRANT SELECT ON mydb TO {{username}}",
 				},
 				Schema: getRoleFieldSchema(),
 			}
@@ -948,7 +948,7 @@ func TestPathRoleCreateValidation(t *testing.T) {
 					"db_password":        tt.dbPassword,
 					"default_ttl":        tt.defaultTTL,
 					"max_ttl":            tt.maxTTL,
-					"creation_statement": "CREATE USER test",
+					"creation_statement": "GRANT SELECT ON mydb TO {{username}}",
 				},
 				Schema: getRoleFieldSchema(),
 			}

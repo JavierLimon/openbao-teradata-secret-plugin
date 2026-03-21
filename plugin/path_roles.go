@@ -6,6 +6,7 @@ import (
 
 	"github.com/JavierLimon/openbao-teradata-secret-plugin/audit"
 	"github.com/JavierLimon/openbao-teradata-secret-plugin/models"
+	"github.com/JavierLimon/openbao-teradata-secret-plugin/security"
 	"github.com/JavierLimon/openbao-teradata-secret-plugin/webhook"
 	"github.com/openbao/openbao/sdk/v2/framework"
 	"github.com/openbao/openbao/sdk/v2/logical"
@@ -151,19 +152,30 @@ func (b *Backend) pathRoleExistenceCheck(ctx context.Context, req *logical.Reque
 func (b *Backend) pathRoleCreate(ctx context.Context, req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
 	name := data.Get("name").(string)
 
+	dbUser := data.Get("db_user").(string)
+
+	creationStatement := data.Get("creation_statement").(string)
+	revocationStatement := data.Get("revocation_statement").(string)
+	rollbackStatement := data.Get("rollback_statement").(string)
+	renewalStatement := data.Get("renewal_statement").(string)
+
+	if err := security.ValidateStatementTemplates(creationStatement, revocationStatement, rollbackStatement, renewalStatement); err != nil {
+		return nil, fmt.Errorf("SQL statement validation failed: %w", err)
+	}
+
 	role := &models.Role{
 		Name:                name,
 		Version:             models.RoleVersion,
-		DBUser:              data.Get("db_user").(string),
+		DBUser:              dbUser,
 		DBPassword:          data.Get("db_password").(string),
 		DefaultTTL:          data.Get("default_ttl").(int),
 		MaxTTL:              data.Get("max_ttl").(int),
 		RenewalPeriod:       data.Get("renewal_period").(int),
 		StatementTemplate:   data.Get("statement_template").(string),
-		CreationStatement:   data.Get("creation_statement").(string),
-		RevocationStatement: data.Get("revocation_statement").(string),
-		RollbackStatement:   data.Get("rollback_statement").(string),
-		RenewalStatement:    data.Get("renewal_statement").(string),
+		CreationStatement:   creationStatement,
+		RevocationStatement: revocationStatement,
+		RollbackStatement:   rollbackStatement,
+		RenewalStatement:    renewalStatement,
 		MaxCredentials:      data.Get("max_credentials").(int),
 	}
 
@@ -256,19 +268,30 @@ func (b *Backend) pathRoleUpdate(ctx context.Context, req *logical.Request, data
 		return nil, err
 	}
 
+	dbUser := data.Get("db_user").(string)
+
+	creationStatement := data.Get("creation_statement").(string)
+	revocationStatement := data.Get("revocation_statement").(string)
+	rollbackStatement := data.Get("rollback_statement").(string)
+	renewalStatement := data.Get("renewal_statement").(string)
+
+	if err := security.ValidateStatementTemplates(creationStatement, revocationStatement, rollbackStatement, renewalStatement); err != nil {
+		return nil, fmt.Errorf("SQL statement validation failed: %w", err)
+	}
+
 	role := &models.Role{
 		Name:                name,
 		Version:             models.RoleVersion,
-		DBUser:              data.Get("db_user").(string),
+		DBUser:              dbUser,
 		DBPassword:          data.Get("db_password").(string),
 		DefaultTTL:          data.Get("default_ttl").(int),
 		MaxTTL:              data.Get("max_ttl").(int),
 		RenewalPeriod:       data.Get("renewal_period").(int),
 		StatementTemplate:   data.Get("statement_template").(string),
-		CreationStatement:   data.Get("creation_statement").(string),
-		RevocationStatement: data.Get("revocation_statement").(string),
-		RollbackStatement:   data.Get("rollback_statement").(string),
-		RenewalStatement:    data.Get("renewal_statement").(string),
+		CreationStatement:   creationStatement,
+		RevocationStatement: revocationStatement,
+		RollbackStatement:   rollbackStatement,
+		RenewalStatement:    renewalStatement,
 		MaxCredentials:      data.Get("max_credentials").(int),
 	}
 

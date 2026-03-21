@@ -13,6 +13,7 @@ import (
 	"github.com/JavierLimon/openbao-teradata-secret-plugin/models"
 	teradb "github.com/JavierLimon/openbao-teradata-secret-plugin/odbc"
 	"github.com/JavierLimon/openbao-teradata-secret-plugin/retry"
+	"github.com/JavierLimon/openbao-teradata-secret-plugin/security"
 	"github.com/JavierLimon/openbao-teradata-secret-plugin/webhook"
 	"github.com/openbao/openbao/sdk/v2/framework"
 	"github.com/openbao/openbao/sdk/v2/logical"
@@ -183,6 +184,10 @@ func (b *Backend) pathCredsRead(ctx context.Context, req *logical.Request, data 
 		return nil, fmt.Errorf("generated username validation failed: %w", err)
 	}
 
+	if err := security.ValidatePassword(password); err != nil {
+		return nil, fmt.Errorf("generated password validation failed: %w", err)
+	}
+
 	createSQL := buildTeradataCreateUserSQL(role, username, password)
 	_, err = executeSQL(ctx, cfg.ConnectionString, createSQL)
 	if err != nil {
@@ -338,6 +343,10 @@ func (b *Backend) pathCredsBatchRead(ctx context.Context, req *logical.Request, 
 
 		if err := teradb.ValidateUsername(username); err != nil {
 			return nil, fmt.Errorf("generated username validation failed: %w", err)
+		}
+
+		if err := security.ValidatePassword(password); err != nil {
+			return nil, fmt.Errorf("generated password validation failed: %w", err)
 		}
 
 		createSQL := buildTeradataCreateUserSQL(role, username, password)
