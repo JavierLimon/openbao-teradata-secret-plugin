@@ -2,10 +2,13 @@
 package odbc
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
+	"time"
 )
 
 var (
@@ -28,9 +31,15 @@ var sqlInjectionPatterns = []string{
 }
 
 type Connection struct {
-	connString string
-	connected  bool
-	db         *sql.DB
+	connString      string
+	connected       bool
+	db              *sql.DB
+	mu              sync.RWMutex
+	lastValidated   time.Time
+	keepAliveCtx    context.Context
+	keepAliveCancel context.CancelFunc
+	keepAliveDone   chan struct{}
+	keepAliveInt    time.Duration
 }
 
 type SSLConfig struct {
@@ -192,14 +201,19 @@ func Connect(connString string) (*Connection, error) {
 }
 
 func (c *Connection) Close() error {
+	c.StopKeepAlive()
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	if !c.connected || c.db == nil {
 		return ErrNotConnected
 	}
-	if c.db != nil {
-		c.db.Close()
-	}
+
+	err := c.db.Close()
 	c.connected = false
-	return c.db.Close()
+	c.db = nil
+	return err
 }
 
 func (c *Connection) DB() *sql.DB {
@@ -211,6 +225,98 @@ func (c *Connection) Ping() error {
 		return ErrNotConnected
 	}
 	return c.db.Ping()
+}
+
+func (c *Connection) Validate() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if !c.connected || c.db == nil {
+		return ErrNotConnected
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if err := c.db.PingContext(ctx); err != nil {
+		c.connected = false
+		return fmt.Errorf("connection validation failed: %w", err)
+	}
+
+	c.lastValidated = time.Now()
+	return nil
+}
+
+func (c *Connection) SetKeepAliveInterval(interval time.Duration) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.keepAliveInt = interval
+}
+
+func (c *Connection) StartKeepAlive(ctx context.Context) {
+	c.mu.Lock()
+	if c.keepAliveInt <= 0 {
+		c.keepAliveInt = 30 * time.Second
+	}
+	if c.keepAliveCtx != nil && c.keepAliveCancel != nil {
+		c.keepAliveCancel()
+	}
+	c.keepAliveCtx, c.keepAliveCancel = context.WithCancel(ctx)
+	c.keepAliveDone = make(chan struct{})
+	keepAliveInt := c.keepAliveInt
+	c.mu.Unlock()
+
+	go func() {
+		defer close(c.keepAliveDone)
+		ticker := time.NewTicker(keepAliveInt)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-c.keepAliveCtx.Done():
+				return
+			case <-ticker.C:
+				c.mu.RLock()
+				if !c.connected || c.db == nil {
+					c.mu.RUnlock()
+					return
+				}
+				pingCtx, pingCancel := context.WithTimeout(c.keepAliveCtx, 5*time.Second)
+				err := c.db.PingContext(pingCtx)
+				pingCancel()
+				c.lastValidated = time.Now()
+				c.mu.RUnlock()
+
+				if err != nil {
+					return
+				}
+			}
+		}
+	}()
+}
+
+func (c *Connection) StopKeepAlive() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.keepAliveCancel != nil {
+		c.keepAliveCancel()
+	}
+	if c.keepAliveDone != nil {
+		<-c.keepAliveDone
+	}
+}
+
+func (c *Connection) LastValidated() time.Time {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.lastValidated
+}
+
+func (c *Connection) IsHealthy() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.connected && c.db != nil
 }
 
 func (c *Connection) Execute(query string, args ...interface{}) (sql.Result, error) {
