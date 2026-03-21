@@ -1,21 +1,23 @@
 openapi: 3.0.3
 info:
-  title: Teradata Secret Plugin API
+  title: OpenBao Teradata Secret Plugin API
   description: |
     Dynamic database credentials plugin for Teradata using ODBC.
-    
+
     This plugin provides secure, dynamic database credential generation for Teradata databases.
     All endpoints require a valid OpenBao token with appropriate policies.
   version: 0.1.0
   contact:
-    name: OpenBAO Teradata Plugin
+    name: OpenBao Teradata Plugin
     url: https://github.com/JavierLimon/openbao-teradata-secret-plugin
   license:
     name: MPL-2.0
     url: https://www.mozilla.org/en-US/MPL/2.0/
 servers:
-  - url: /v1/teradata
-    description: OpenBao Teradata plugin mount path
+  - url: /teradata
+    description: OpenBao Teradata secret engine mount path
+  - url: /teradata/v1
+    description: OpenBao Teradata secret engine v1 API path
 tags:
   - name: Configuration
     description: Database connection configuration
@@ -29,10 +31,71 @@ tags:
     description: SQL statement template management
   - name: Monitoring
     description: Health, readiness, and metrics endpoints
+  - name: Admin
+    description: Administrative operations
   - name: v1 API
     description: Backward compatible v1 API endpoints
 
 paths:
+  /reload-config:
+    post:
+      tags: [Admin]
+      summary: Reload plugin configuration
+      operationId: reloadConfig
+      responses:
+        '200':
+          description: Configuration reloaded successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      reloaded:
+                        type: boolean
+                        example: true
+
+  /config/reload:
+    post:
+      tags: [Admin]
+      summary: Reload configuration (v1 compatibility)
+      operationId: reloadConfigV1
+      responses:
+        '200':
+          description: Configuration reloaded successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      reloaded:
+                        type: boolean
+                        example: true
+
+  /reload/plugin:
+    post:
+      tags: [Admin]
+      summary: Reload entire plugin
+      operationId: reloadPlugin
+      responses:
+        '200':
+          description: Plugin reloaded successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      reloaded:
+                        type: boolean
+                        example: true
   /config:
     get:
       tags: [Configuration]
@@ -820,11 +883,18 @@ components:
   schemas:
     ConfigRequest:
       type: object
+      required:
+        - connection_string
       properties:
         connection_string:
           type: string
           description: ODBC connection string
           example: "DSN=MyTeradata;UID=admin;PWD=password"
+        min_connections:
+          type: integer
+          description: Minimum pool connections
+          default: 0
+          minimum: 0
         max_open_connections:
           type: integer
           description: Maximum open connections
@@ -862,6 +932,7 @@ components:
         ssl_key_password:
           type: string
           description: SSL key password
+          writeOnly: true
         ssl_cipher_suites:
           type: string
           description: Comma-separated SSL cipher suites
@@ -871,11 +942,35 @@ components:
         ssl_version:
           type: string
           description: SSL/TLS version (TLS 1.2, TLS 1.3)
+        max_retries:
+          type: integer
+          description: Max connection retry attempts
+          default: 3
+          minimum: 0
+        initial_retry_interval:
+          type: integer
+          description: Initial retry interval in milliseconds
+          default: 100
+          minimum: 0
+        max_retry_interval:
+          type: integer
+          description: Max retry interval in milliseconds
+          default: 5000
+          minimum: 0
+        retry_multiplier:
+          type: number
+          description: Exponential backoff multiplier
+          default: 2.0
+          minimum: 1.0
         session_variables:
           type: object
           additionalProperties:
             type: string
           description: Session variables for connections
+        graceful_degradation_mode:
+          type: boolean
+          description: Continue operating when database is unavailable
+          default: false
 
     ConfigResponse:
       type: object
