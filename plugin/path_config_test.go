@@ -462,6 +462,22 @@ func getConfigFieldSchema() map[string]*framework.FieldSchema {
 			Type:    framework.TypeInt,
 			Default: 0,
 		},
+		"eviction_policy": {
+			Type:    framework.TypeString,
+			Default: "lifo",
+		},
+		"eviction_batch_size": {
+			Type:    framework.TypeInt,
+			Default: 1,
+		},
+		"eviction_grace_period": {
+			Type:    framework.TypeInt,
+			Default: 30,
+		},
+		"min_evictable_idle_time": {
+			Type:    framework.TypeInt,
+			Default: 300,
+		},
 	}
 }
 
