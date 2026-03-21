@@ -155,8 +155,10 @@ func (b *Backend) pathCredsRead(ctx context.Context, req *logical.Request, data 
 	maxTTL := time.Duration(role.MaxTTL) * time.Second
 
 	expiresAt := time.Now().Add(ttl)
+	leaseID := fmt.Sprintf("teradata/creds/%s/%s", name, username)
 
 	cred := &models.Credential{
+		LeaseID:   leaseID,
 		Username:  username,
 		RoleName:  name,
 		CreatedAt: time.Now(),
@@ -173,6 +175,7 @@ func (b *Backend) pathCredsRead(ctx context.Context, req *logical.Request, data 
 			"password": password,
 			"ttl":      int(ttl.Seconds()),
 			"max_ttl":  int(maxTTL.Seconds()),
+			"lease_id": leaseID,
 		},
 	}
 
@@ -185,7 +188,6 @@ func (b *Backend) pathCredsRead(ctx context.Context, req *logical.Request, data 
 		}
 	}
 
-	leaseID := fmt.Sprintf("teradata/creds/%s/%s", name, username)
 	_ = audit.LogCredentialCreation(ctx, req.Storage, username, name, leaseID, nil)
 
 	return resp, nil
@@ -294,7 +296,10 @@ func (b *Backend) pathCredsBatchRead(ctx context.Context, req *logical.Request, 
 		maxTTL := time.Duration(role.MaxTTL) * time.Second
 		expiresAt := time.Now().Add(ttl)
 
+		leaseID := fmt.Sprintf("teradata/creds/%s/%s", name, username)
+
 		credModel := &models.Credential{
+			LeaseID:   leaseID,
 			Username:  username,
 			RoleName:  name,
 			CreatedAt: time.Now(),
@@ -309,6 +314,7 @@ func (b *Backend) pathCredsBatchRead(ctx context.Context, req *logical.Request, 
 			"password": password,
 			"ttl":      int(ttl.Seconds()),
 			"max_ttl":  int(maxTTL.Seconds()),
+			"lease_id": leaseID,
 		}
 		credentials = append(credentials, cred)
 	}
@@ -540,4 +546,75 @@ func countCredentialsByRole(ctx context.Context, storage logical.Storage, roleNa
 	}
 
 	return count, nil
+}
+
+func getCredentialByLeaseID(ctx context.Context, storage logical.Storage, leaseID string) (*models.Credential, string, error) {
+	entries, err := storage.List(ctx, credentialPrefix)
+	if err != nil {
+		return nil, "", err
+	}
+
+	for _, entry := range entries {
+		username := strings.TrimPrefix(entry, credentialPrefix)
+		cred, err := getCredential(ctx, storage, username)
+		if err != nil {
+			return nil, "", err
+		}
+		if cred != nil && cred.LeaseID == leaseID {
+			return cred, username, nil
+		}
+	}
+
+	return nil, "", nil
+}
+
+func listAllLeases(ctx context.Context, storage logical.Storage) ([]*models.Credential, error) {
+	entries, err := storage.List(ctx, credentialPrefix)
+	if err != nil {
+		return nil, err
+	}
+
+	leases := make([]*models.Credential, 0, len(entries))
+	for _, entry := range entries {
+		username := strings.TrimPrefix(entry, credentialPrefix)
+		cred, err := getCredential(ctx, storage, username)
+		if err != nil {
+			return nil, err
+		}
+		if cred != nil {
+			leases = append(leases, cred)
+		}
+	}
+
+	return leases, nil
+}
+
+func cleanupExpiredCredentials(ctx context.Context, storage logical.Storage, connString string) (int, error) {
+	entries, err := storage.List(ctx, credentialPrefix)
+	if err != nil {
+		return 0, err
+	}
+
+	now := time.Now()
+	cleaned := 0
+
+	for _, entry := range entries {
+		username := strings.TrimPrefix(entry, credentialPrefix)
+		cred, err := getCredential(ctx, storage, username)
+		if err != nil {
+			continue
+		}
+		if cred != nil && now.After(cred.ExpiresAt) {
+			dropSQL := fmt.Sprintf("DROP USER %s", username)
+			_, execErr := executeSQL(ctx, connString, dropSQL)
+			if execErr == nil {
+				delErr := deleteCredential(ctx, storage, username)
+				if delErr == nil {
+					cleaned++
+				}
+			}
+		}
+	}
+
+	return cleaned, nil
 }
