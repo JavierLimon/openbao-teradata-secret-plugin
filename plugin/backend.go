@@ -9,6 +9,7 @@ import (
 	"github.com/JavierLimon/openbao-teradata-secret-plugin/audit"
 	teradb "github.com/JavierLimon/openbao-teradata-secret-plugin/odbc"
 	"github.com/JavierLimon/openbao-teradata-secret-plugin/storage"
+	"github.com/JavierLimon/openbao-teradata-secret-plugin/webhook"
 	"github.com/openbao/openbao/sdk/v2/framework"
 	"github.com/openbao/openbao/sdk/v2/logical"
 )
@@ -62,6 +63,7 @@ func (b *Backend) paths() []*framework.Path {
 		b.pathConfigV1(),
 		b.pathConfigBackup(),
 		b.pathConfigRestore(),
+		b.pathWebhook(),
 		b.pathRoles(),
 		b.pathRolesV1(),
 		b.pathRoleList(),
@@ -128,6 +130,7 @@ func (b *Backend) Revoke(ctx context.Context, leaseID string) error {
 	conn, err := teradb.Connect(cfg.ConnectionString)
 	if err != nil {
 		_ = audit.LogCredentialRevocation(ctx, b.storage, username, roleName, map[string]interface{}{"error": err.Error()})
+		_ = webhook.SendCredentialRevokedWebhook(ctx, b.storage, username, roleName, map[string]interface{}{"error": err.Error()})
 		return fmt.Errorf("failed to connect for revocation: %w", err)
 	}
 	defer conn.Close()
@@ -135,10 +138,12 @@ func (b *Backend) Revoke(ctx context.Context, leaseID string) error {
 	err = conn.ExecuteMultipleStatements(dropSQL)
 	if err != nil {
 		_ = audit.LogCredentialRevocation(ctx, b.storage, username, roleName, map[string]interface{}{"error": err.Error()})
+		_ = webhook.SendCredentialRevokedWebhook(ctx, b.storage, username, roleName, map[string]interface{}{"error": err.Error()})
 		return fmt.Errorf("failed to revoke credential: %w", err)
 	}
 
 	_ = audit.LogCredentialRevocation(ctx, b.storage, username, roleName, nil)
+	_ = webhook.SendCredentialRevokedWebhook(ctx, b.storage, username, roleName, nil)
 	return nil
 }
 
