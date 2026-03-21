@@ -568,7 +568,9 @@ func executeSQL(ctx context.Context, cfg *models.Config, sql string) (interface{
 		return nil, fmt.Errorf("failed to build connection string: %w", err)
 	}
 
-	err = retry.Do(ctx, nil, func() error {
+	retryCfg := buildRetryConfig(cfg)
+
+	err = retry.Do(ctx, retryCfg, func() error {
 		conn, connErr := teradb.Connect(connString)
 		if connErr != nil {
 			return connErr
@@ -587,6 +589,35 @@ func executeSQL(ctx context.Context, cfg *models.Config, sql string) (interface{
 	}
 
 	return result, nil
+}
+
+func buildRetryConfig(cfg *models.Config) *retry.Config {
+	maxRetries := cfg.MaxRetries
+	if maxRetries <= 0 {
+		maxRetries = retry.DefaultMaxAttempts
+	}
+
+	initialInterval := time.Duration(cfg.InitialRetryInterval) * time.Millisecond
+	if initialInterval <= 0 {
+		initialInterval = retry.DefaultInitialInterval
+	}
+
+	maxInterval := time.Duration(cfg.MaxRetryInterval) * time.Millisecond
+	if maxInterval <= 0 {
+		maxInterval = retry.DefaultMaxInterval
+	}
+
+	multiplier := cfg.RetryMultiplier
+	if multiplier <= 0 {
+		multiplier = retry.DefaultMultiplier
+	}
+
+	return &retry.Config{
+		MaxAttempts:     maxRetries,
+		InitialInterval: initialInterval,
+		MaxInterval:     maxInterval,
+		Multiplier:      multiplier,
+	}
 }
 
 func buildConnectionString(cfg *models.Config) (string, error) {

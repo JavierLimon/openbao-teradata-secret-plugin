@@ -90,6 +90,26 @@ func (b *Backend) pathConfig() *framework.Path {
 				Type:        framework.TypeString,
 				Description: "SSL/TLS version (TLS 1.2, TLS 1.3)",
 			},
+			"max_retries": {
+				Type:        framework.TypeInt,
+				Description: "Maximum number of connection retry attempts",
+				Default:     3,
+			},
+			"initial_retry_interval": {
+				Type:        framework.TypeInt,
+				Description: "Initial retry interval in milliseconds",
+				Default:     100,
+			},
+			"max_retry_interval": {
+				Type:        framework.TypeInt,
+				Description: "Maximum retry interval in milliseconds",
+				Default:     5000,
+			},
+			"retry_multiplier": {
+				Type:        framework.TypeFloat,
+				Description: "Exponential backoff multiplier for retries",
+				Default:     2.0,
+			},
 			"session_variables": {
 				Type:        framework.TypeMap,
 				Description: "Session variables to set for connections (map of key-value pairs)",
@@ -138,6 +158,10 @@ func (b *Backend) pathConfigWrite(ctx context.Context, req *logical.Request, dat
 	sslCipherSuites := data.Get("ssl_cipher_suites").(string)
 	sslSecure := data.Get("ssl_secure").(bool)
 	sslVersion := data.Get("ssl_version").(string)
+	maxRetries := data.Get("max_retries").(int)
+	initialRetryInterval := data.Get("initial_retry_interval").(int)
+	maxRetryInterval := data.Get("max_retry_interval").(int)
+	retryMultiplier := data.Get("retry_multiplier").(float64)
 
 	var sessionVariables map[string]string
 	if rawVars, ok := data.Raw["session_variables"].(map[string]interface{}); ok {
@@ -174,6 +198,19 @@ func (b *Backend) pathConfigWrite(ctx context.Context, req *logical.Request, dat
 		return nil, fmt.Errorf("invalid ssl_mode: %s, must be one of: disable, allow, verify-ca, verify-full, require", sslMode)
 	}
 
+	if maxRetries < 0 {
+		return nil, fmt.Errorf("max_retries cannot be negative")
+	}
+	if initialRetryInterval < 0 {
+		return nil, fmt.Errorf("initial_retry_interval cannot be negative")
+	}
+	if maxRetryInterval < 0 {
+		return nil, fmt.Errorf("max_retry_interval cannot be negative")
+	}
+	if retryMultiplier <= 0 {
+		return nil, fmt.Errorf("retry_multiplier must be positive")
+	}
+
 	cfg := &models.Config{
 		Region:                region,
 		ConnectionString:      connectionString,
@@ -192,6 +229,10 @@ func (b *Backend) pathConfigWrite(ctx context.Context, req *logical.Request, dat
 		SSLSecure:             sslSecure,
 		SSLVersion:            sslVersion,
 		SessionVariables:      sessionVariables,
+		MaxRetries:            maxRetries,
+		InitialRetryInterval:  initialRetryInterval,
+		MaxRetryInterval:      maxRetryInterval,
+		RetryMultiplier:       retryMultiplier,
 	}
 
 	storageKey := "config"
@@ -225,6 +266,10 @@ func (b *Backend) pathConfigWrite(ctx context.Context, req *logical.Request, dat
 		"ssl_cipher_suites":       sslCipherSuites,
 		"ssl_secure":              sslSecure,
 		"ssl_version":             sslVersion,
+		"max_retries":             maxRetries,
+		"initial_retry_interval":  initialRetryInterval,
+		"max_retry_interval":      maxRetryInterval,
+		"retry_multiplier":        retryMultiplier,
 	}
 	if region != "" {
 		respData["region"] = region
@@ -279,6 +324,10 @@ func (b *Backend) pathConfigRead(ctx context.Context, req *logical.Request, data
 		"ssl_secure":              cfg.SSLSecure,
 		"ssl_version":             cfg.SSLVersion,
 		"session_variables":       cfg.SessionVariables,
+		"max_retries":             cfg.MaxRetries,
+		"initial_retry_interval":  cfg.InitialRetryInterval,
+		"max_retry_interval":      cfg.MaxRetryInterval,
+		"retry_multiplier":        cfg.RetryMultiplier,
 	}
 	if cfg.Region != "" {
 		respData["region"] = cfg.Region

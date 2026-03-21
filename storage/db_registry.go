@@ -10,6 +10,7 @@ import (
 	"github.com/JavierLimon/openbao-teradata-secret-plugin/logging"
 	"github.com/JavierLimon/openbao-teradata-secret-plugin/metrics"
 	_ "github.com/JavierLimon/openbao-teradata-secret-plugin/odbc"
+	"github.com/JavierLimon/openbao-teradata-secret-plugin/retry"
 )
 
 type DBConfig struct {
@@ -32,6 +33,10 @@ type DBConfig struct {
 	SSLCipherSuites       string        `json:"ssl_cipher_suites"`
 	SSLSecure             bool          `json:"ssl_secure"`
 	SSLVersion            string        `json:"ssl_version"`
+	MaxRetries            int           `json:"max_retries"`
+	InitialRetryInterval  time.Duration `json:"initial_retry_interval"`
+	MaxRetryInterval      time.Duration `json:"max_retry_interval"`
+	RetryMultiplier       float64       `json:"retry_multiplier"`
 }
 
 type ConnectionState int
@@ -326,6 +331,19 @@ func (r *DBRegistry) AddConnection(name string, config *DBConfig) (*DBConnection
 		config.MaxIdleConnections = config.MinConnections
 	}
 
+	if config.MaxRetries == 0 {
+		config.MaxRetries = 3
+	}
+	if config.InitialRetryInterval == 0 {
+		config.InitialRetryInterval = 100 * time.Millisecond
+	}
+	if config.MaxRetryInterval == 0 {
+		config.MaxRetryInterval = 5 * time.Second
+	}
+	if config.RetryMultiplier == 0 {
+		config.RetryMultiplier = 2.0
+	}
+
 	db, err := sql.Open("odbc", config.ConnectionString)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)
@@ -334,6 +352,26 @@ func (r *DBRegistry) AddConnection(name string, config *DBConfig) (*DBConnection
 	db.SetMaxOpenConns(config.MaxOpenConnections)
 	db.SetMaxIdleConns(config.MaxIdleConnections)
 	db.SetConnMaxLifetime(config.MaxConnectionLifetime)
+
+	retryCfg := &retry.Config{
+		MaxAttempts:     config.MaxRetries,
+		InitialInterval: config.InitialRetryInterval,
+		MaxInterval:     config.MaxRetryInterval,
+		Multiplier:      config.RetryMultiplier,
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), config.ConnectionTimeout)
+	defer cancel()
+
+	var pingErr error
+	err = retry.Do(ctx, retryCfg, func() error {
+		pingErr = db.PingContext(ctx)
+		return pingErr
+	})
+	if err != nil {
+		db.Close()
+		return nil, fmt.Errorf("failed to connect to database after %d attempts: %w", config.MaxRetries, pingErr)
+	}
 
 	dbc := &DBConnection{
 		Config:          config,
@@ -358,6 +396,10 @@ func (r *DBRegistry) AddConnection(name string, config *DBConfig) (*DBConnection
 		"max_connection_lifetime": config.MaxConnectionLifetime,
 		"idle_timeout":            config.IdleTimeout,
 		"health_check_interval":   config.HealthCheckInterval,
+		"max_retries":             config.MaxRetries,
+		"initial_retry_interval":  config.InitialRetryInterval,
+		"max_retry_interval":      config.MaxRetryInterval,
+		"retry_multiplier":        config.RetryMultiplier,
 	})
 
 	if config.MinConnections > 0 {
