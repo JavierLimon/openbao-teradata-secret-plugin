@@ -40,6 +40,11 @@ func (b *Backend) pathRoles() *framework.Path {
 				Description: "Maximum lease duration in seconds",
 				Default:     86400,
 			},
+			"renewal_period": {
+				Type:        framework.TypeInt,
+				Description: "Automatic renewal period in seconds (0 = disabled)",
+				Default:     0,
+			},
 			"statement_template": {
 				Type:        framework.TypeString,
 				Description: "Name of the statement template to use",
@@ -132,6 +137,7 @@ func (b *Backend) pathRoleCreate(ctx context.Context, req *logical.Request, data
 		DBPassword:          data.Get("db_password").(string),
 		DefaultTTL:          data.Get("default_ttl").(int),
 		MaxTTL:              data.Get("max_ttl").(int),
+		RenewalPeriod:       data.Get("renewal_period").(int),
 		StatementTemplate:   data.Get("statement_template").(string),
 		CreationStatement:   data.Get("creation_statement").(string),
 		RevocationStatement: data.Get("revocation_statement").(string),
@@ -156,6 +162,7 @@ func (b *Backend) pathRoleCreate(ctx context.Context, req *logical.Request, data
 			"db_user":              role.DBUser,
 			"default_ttl":          role.DefaultTTL,
 			"max_ttl":              role.MaxTTL,
+			"renewal_period":       role.RenewalPeriod,
 			"statement_template":   role.StatementTemplate,
 			"creation_statement":   "***",
 			"revocation_statement": "***",
@@ -185,6 +192,7 @@ func (b *Backend) pathRoleRead(ctx context.Context, req *logical.Request, data *
 		"db_user":              role.DBUser,
 		"default_ttl":          role.DefaultTTL,
 		"max_ttl":              role.MaxTTL,
+		"renewal_period":       role.RenewalPeriod,
 		"statement_template":   role.StatementTemplate,
 		"creation_statement":   role.CreationStatement,
 		"revocation_statement": role.RevocationStatement,
@@ -210,6 +218,7 @@ func (b *Backend) pathRoleUpdate(ctx context.Context, req *logical.Request, data
 		DBPassword:          data.Get("db_password").(string),
 		DefaultTTL:          data.Get("default_ttl").(int),
 		MaxTTL:              data.Get("max_ttl").(int),
+		RenewalPeriod:       data.Get("renewal_period").(int),
 		StatementTemplate:   data.Get("statement_template").(string),
 		CreationStatement:   data.Get("creation_statement").(string),
 		RevocationStatement: data.Get("revocation_statement").(string),
@@ -230,10 +239,11 @@ func (b *Backend) pathRoleUpdate(ctx context.Context, req *logical.Request, data
 
 	return &logical.Response{
 		Data: map[string]interface{}{
-			"name":        name,
-			"db_user":     role.DBUser,
-			"default_ttl": role.DefaultTTL,
-			"max_ttl":     role.MaxTTL,
+			"name":           name,
+			"db_user":        role.DBUser,
+			"default_ttl":    role.DefaultTTL,
+			"max_ttl":        role.MaxTTL,
+			"renewal_period": role.RenewalPeriod,
 		},
 	}, nil
 }
