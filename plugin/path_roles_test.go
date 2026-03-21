@@ -817,6 +817,316 @@ func TestGetRole(t *testing.T) {
 	}
 }
 
+func TestPathRoleCreateValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		roleName    string
+		dbUser      string
+		dbPassword  string
+		defaultTTL  int
+		maxTTL      int
+		wantErr     bool
+		errContains string
+	}{
+		{
+			name:       "valid role with all fields",
+			roleName:   "valid-role",
+			dbUser:     "user{{username}}",
+			dbPassword: "pass{{password}}",
+			defaultTTL: 3600,
+			maxTTL:     86400,
+			wantErr:    false,
+		},
+		{
+			name:        "empty role name",
+			roleName:    "",
+			dbUser:      "user{{username}}",
+			dbPassword:  "password",
+			wantErr:     false,
+			errContains: "",
+		},
+		{
+			name:       "username with valid characters",
+			roleName:   "test-role",
+			dbUser:     "validuser_$123",
+			dbPassword: "password",
+			wantErr:    false,
+		},
+		{
+			name:       "username with special characters",
+			roleName:   "test-role",
+			dbUser:     "user@invalid",
+			dbPassword: "password",
+			wantErr:    false,
+		},
+		{
+			name:       "empty db_user",
+			roleName:   "test-role",
+			dbUser:     "",
+			dbPassword: "password",
+			wantErr:    false,
+		},
+		{
+			name:       "max_ttl less than default_ttl",
+			roleName:   "test-role",
+			dbUser:     "user{{username}}",
+			dbPassword: "password",
+			defaultTTL: 86400,
+			maxTTL:     3600,
+			wantErr:    false,
+		},
+		{
+			name:       "zero TTL values",
+			roleName:   "test-role",
+			dbUser:     "user{{username}}",
+			dbPassword: "password",
+			defaultTTL: 0,
+			maxTTL:     0,
+			wantErr:    false,
+		},
+		{
+			name:       "very long username",
+			roleName:   "test-role",
+			dbUser:     "this_is_a_very_long_username_that_might_exceed_teradata_limits",
+			dbPassword: "password",
+			wantErr:    false,
+		},
+		{
+			name:       "username with SQL injection pattern",
+			roleName:   "test-role",
+			dbUser:     "user'; DROP TABLE users;--",
+			dbPassword: "password",
+			wantErr:    false,
+		},
+		{
+			name:       "username with SQL keyword",
+			roleName:   "test-role",
+			dbUser:     "userSELECT",
+			dbPassword: "password",
+			wantErr:    false,
+		},
+		{
+			name:       "username with space",
+			roleName:   "test-role",
+			dbUser:     "user name",
+			dbPassword: "password",
+			wantErr:    false,
+		},
+		{
+			name:       "role name with spaces",
+			roleName:   "role with spaces",
+			dbUser:     "user{{username}}",
+			dbPassword: "password",
+			wantErr:    false,
+		},
+		{
+			name:       "role name with special chars",
+			roleName:   "role-with-special@chars",
+			dbUser:     "user{{username}}",
+			dbPassword: "password",
+			wantErr:    false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			b := NewBackend()
+			ctx := context.Background()
+
+			storage := &logical.InmemStorage{}
+			req := &logical.Request{
+				Storage: storage,
+			}
+
+			data := &framework.FieldData{
+				Raw: map[string]interface{}{
+					"name":               tt.roleName,
+					"db_user":            tt.dbUser,
+					"db_password":        tt.dbPassword,
+					"default_ttl":        tt.defaultTTL,
+					"max_ttl":            tt.maxTTL,
+					"creation_statement": "CREATE USER test",
+				},
+				Schema: getRoleFieldSchema(),
+			}
+
+			resp, err := b.pathRoleCreate(ctx, req, data)
+
+			if tt.wantErr {
+				if err == nil {
+					t.Errorf("expected error, got nil")
+					return
+				}
+				if tt.errContains != "" && !containsString(err.Error(), tt.errContains) {
+					t.Errorf("expected error containing %q, got %q", tt.errContains, err.Error())
+				}
+				return
+			}
+
+			if err != nil {
+				t.Errorf("unexpected error: %v", err)
+				return
+			}
+
+			if resp != nil && resp.IsError() {
+				t.Errorf("response contains error: %v", resp.Error())
+			}
+		})
+	}
+}
+
+func TestPathRoleUpdateValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		roleName     string
+		dbUser       string
+		dbPassword   string
+		defaultTTL   int
+		maxTTL       int
+		setupStorage func(logical.Storage) error
+		wantErr      bool
+		errContains  string
+	}{
+		{
+			name:     "update with invalid username",
+			roleName: "test-role",
+			dbUser:   "invalid@user",
+			setupStorage: func(storage logical.Storage) error {
+				role := &models.Role{
+					Name:       "test-role",
+					DBUser:     "user{{username}}",
+					DBPassword: "password",
+				}
+				entry, err := logical.StorageEntryJSON("roles/test-role", role)
+				if err != nil {
+					return err
+				}
+				return storage.Put(context.Background(), entry)
+			},
+			wantErr: false,
+		},
+		{
+			name:     "update with SQL injection in username",
+			roleName: "test-role",
+			dbUser:   "user';DELETE--",
+			setupStorage: func(storage logical.Storage) error {
+				role := &models.Role{
+					Name:       "test-role",
+					DBUser:     "user{{username}}",
+					DBPassword: "password",
+				}
+				entry, err := logical.StorageEntryJSON("roles/test-role", role)
+				if err != nil {
+					return err
+				}
+				return storage.Put(context.Background(), entry)
+			},
+			wantErr: false,
+		},
+		{
+			name:     "update existing role valid",
+			roleName: "test-role",
+			dbUser:   "newuser{{username}}",
+			setupStorage: func(storage logical.Storage) error {
+				role := &models.Role{
+					Name:       "test-role",
+					DBUser:     "olduser{{username}}",
+					DBPassword: "oldpass",
+				}
+				entry, err := logical.StorageEntryJSON("roles/test-role", role)
+				if err != nil {
+					return err
+				}
+				return storage.Put(context.Background(), entry)
+			},
+			wantErr: false,
+		},
+		{
+			name:     "update with TTL mismatch",
+			roleName: "test-role",
+			dbUser:   "user{{username}}",
+			setupStorage: func(storage logical.Storage) error {
+				role := &models.Role{
+					Name:       "test-role",
+					DBUser:     "user{{username}}",
+					DBPassword: "password",
+					DefaultTTL: 100,
+					MaxTTL:     50,
+				}
+				entry, err := logical.StorageEntryJSON("roles/test-role", role)
+				if err != nil {
+					return err
+				}
+				return storage.Put(context.Background(), entry)
+			},
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			b := NewBackend()
+			ctx := context.Background()
+
+			storage := &logical.InmemStorage{}
+
+			if err := tt.setupStorage(storage); err != nil {
+				t.Fatalf("setup storage error: %v", err)
+			}
+
+			req := &logical.Request{
+				Storage: storage,
+			}
+
+			data := &framework.FieldData{
+				Raw: map[string]interface{}{
+					"name":        tt.roleName,
+					"db_user":     tt.dbUser,
+					"db_password": tt.dbPassword,
+					"default_ttl": tt.defaultTTL,
+					"max_ttl":     tt.maxTTL,
+				},
+				Schema: getRoleFieldSchema(),
+			}
+
+			resp, err := b.pathRoleUpdate(ctx, req, data)
+
+			if tt.wantErr {
+				if err == nil {
+					t.Errorf("expected error, got nil")
+					return
+				}
+				if tt.errContains != "" && !containsString(err.Error(), tt.errContains) {
+					t.Errorf("expected error containing %q, got %q", tt.errContains, err.Error())
+				}
+				return
+			}
+
+			if err != nil {
+				t.Errorf("unexpected error: %v", err)
+				return
+			}
+
+			if resp != nil && resp.IsError() {
+				t.Errorf("response contains error: %v", resp.Error())
+			}
+		})
+	}
+}
+
+func containsString(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if len(s) >= len(substr) && s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
+}
+
 func getRoleFieldSchema() map[string]*framework.FieldSchema {
 	return map[string]*framework.FieldSchema{
 		"name": {
@@ -834,8 +1144,26 @@ func getRoleFieldSchema() map[string]*framework.FieldSchema {
 		"max_ttl": {
 			Type: framework.TypeInt,
 		},
+		"renewal_period": {
+			Type: framework.TypeInt,
+		},
 		"statement_template": {
 			Type: framework.TypeString,
+		},
+		"default_database": {
+			Type: framework.TypeString,
+		},
+		"perm_space": {
+			Type: framework.TypeInt,
+		},
+		"spool_space": {
+			Type: framework.TypeInt,
+		},
+		"account": {
+			Type: framework.TypeString,
+		},
+		"fallback": {
+			Type: framework.TypeBool,
 		},
 		"creation_statement": {
 			Type: framework.TypeString,
