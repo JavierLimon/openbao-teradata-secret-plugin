@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/JavierLimon/openbao-teradata-secret-plugin/logging"
 	_ "github.com/JavierLimon/openbao-teradata-secret-plugin/odbc"
 )
 
@@ -143,6 +144,10 @@ func (c *DBConnection) cleanupIdleConnections() {
 	if time.Since(c.lastUsed) > c.Config.IdleConnectionTimeout {
 		c.Database.Close()
 		c.state = StateClosed
+		logging.LogConnectionEvent(nil, "idle_connection_closed", c.Config.Name, map[string]interface{}{
+			"idle_timeout": c.Config.IdleConnectionTimeout,
+			"last_used":    c.lastUsed,
+		})
 	}
 }
 
@@ -200,9 +205,12 @@ func (c *DBConnection) CheckHealth() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	startTime := time.Now()
+
 	if c.Database == nil {
 		c.state = StateClosed
 		c.healthCheckErr = fmt.Errorf("database connection is nil")
+		logging.LogHealthCheck(nil, c.Config.Name, "closed", time.Since(startTime), c.healthCheckErr)
 		return c.healthCheckErr
 	}
 
@@ -213,9 +221,11 @@ func (c *DBConnection) CheckHealth() error {
 	if err != nil {
 		c.state = StateUnhealthy
 		c.healthCheckErr = fmt.Errorf("health check failed: %w", err)
+		logging.LogHealthCheck(nil, c.Config.Name, "unhealthy", time.Since(startTime), c.healthCheckErr)
 	} else {
 		c.state = StateHealthy
 		c.healthCheckErr = nil
+		logging.LogHealthCheck(nil, c.Config.Name, "healthy", time.Since(startTime), nil)
 	}
 	c.lastHealthCheck = time.Now()
 	return c.healthCheckErr
@@ -292,6 +302,13 @@ func (r *DBRegistry) AddConnection(name string, config *DBConfig) (*DBConnection
 	}
 
 	r.connections[name] = dbc
+
+	logging.LogConnectionEvent(nil, "connection_added", name, map[string]interface{}{
+		"min_connections":       config.MinConnections,
+		"max_open_connections":  config.MaxOpenConnections,
+		"max_idle_connections":  config.MaxIdleConnections,
+		"health_check_interval": config.HealthCheckInterval,
+	})
 
 	if config.MinConnections > 0 {
 		go dbc.warmupPool()
@@ -397,6 +414,7 @@ func (r *DBRegistry) RemoveConnection(name string) {
 		conn.state = StateClosed
 		conn.Database.Close()
 		conn.mu.Unlock()
+		logging.LogConnectionEvent(nil, "connection_removed", name, nil)
 	}
 	delete(r.connections, name)
 }
