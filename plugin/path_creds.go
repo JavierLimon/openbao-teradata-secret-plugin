@@ -77,6 +77,16 @@ func (b *Backend) pathCredsRead(ctx context.Context, req *logical.Request, data 
 		return nil, fmt.Errorf("role %q not found", name)
 	}
 
+	if role.MaxCredentials > 0 {
+		currentCount, err := countCredentialsByRole(ctx, req.Storage, name)
+		if err != nil {
+			return nil, fmt.Errorf("failed to count credentials: %w", err)
+		}
+		if currentCount >= role.MaxCredentials {
+			return nil, fmt.Errorf("credential quota exceeded for role %q: max %d, current %d", name, role.MaxCredentials, currentCount)
+		}
+	}
+
 	if role.UsernamePrefix != "" {
 		if err := teradb.ValidateUsername(role.UsernamePrefix); err != nil {
 			return nil, fmt.Errorf("invalid username_prefix: %w", err)
@@ -198,6 +208,20 @@ func (b *Backend) pathCredsBatchRead(ctx context.Context, req *logical.Request, 
 	}
 	if role == nil {
 		return nil, fmt.Errorf("role %q not found", name)
+	}
+
+	if role.MaxCredentials > 0 {
+		currentCount, err := countCredentialsByRole(ctx, req.Storage, name)
+		if err != nil {
+			return nil, fmt.Errorf("failed to count credentials: %w", err)
+		}
+		remainingQuota := role.MaxCredentials - currentCount
+		if remainingQuota <= 0 {
+			return nil, fmt.Errorf("credential quota exceeded for role %q: max %d, current %d", name, role.MaxCredentials, currentCount)
+		}
+		if count > remainingQuota {
+			count = remainingQuota
+		}
 	}
 
 	if role.UsernamePrefix != "" {
@@ -496,4 +520,24 @@ func getCredential(ctx context.Context, storage logical.Storage, username string
 
 func deleteCredential(ctx context.Context, storage logical.Storage, username string) error {
 	return storage.Delete(ctx, credentialPrefix+username)
+}
+
+func countCredentialsByRole(ctx context.Context, storage logical.Storage, roleName string) (int, error) {
+	entries, err := storage.List(ctx, credentialPrefix)
+	if err != nil {
+		return 0, err
+	}
+
+	count := 0
+	for _, entry := range entries {
+		cred, err := getCredential(ctx, storage, strings.TrimPrefix(entry, credentialPrefix))
+		if err != nil {
+			return 0, err
+		}
+		if cred != nil && cred.RoleName == roleName {
+			count++
+		}
+	}
+
+	return count, nil
 }

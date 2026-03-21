@@ -392,11 +392,12 @@ func TestPathRoleUpdate(t *testing.T) {
 
 			data := &framework.FieldData{
 				Raw: map[string]interface{}{
-					"name":        tt.roleName,
-					"db_user":     tt.newDBUser,
-					"db_password": "newpass",
-					"default_ttl": tt.newDefaultTTL,
-					"max_ttl":     tt.newMaxTTL,
+					"name":            tt.roleName,
+					"db_user":         tt.newDBUser,
+					"db_password":     "newpass",
+					"default_ttl":     tt.newDefaultTTL,
+					"max_ttl":         tt.newMaxTTL,
+					"max_credentials": 10,
 				},
 				Schema: getRoleFieldSchema(),
 			}
@@ -1084,11 +1085,12 @@ func TestPathRoleUpdateValidation(t *testing.T) {
 
 			data := &framework.FieldData{
 				Raw: map[string]interface{}{
-					"name":        tt.roleName,
-					"db_user":     tt.dbUser,
-					"db_password": tt.dbPassword,
-					"default_ttl": tt.defaultTTL,
-					"max_ttl":     tt.maxTTL,
+					"name":            tt.roleName,
+					"db_user":         tt.dbUser,
+					"db_password":     tt.dbPassword,
+					"default_ttl":     tt.defaultTTL,
+					"max_ttl":         tt.maxTTL,
+					"max_credentials": 10,
 				},
 				Schema: getRoleFieldSchema(),
 			}
@@ -1176,6 +1178,9 @@ func getRoleFieldSchema() map[string]*framework.FieldSchema {
 		},
 		"renewal_statement": {
 			Type: framework.TypeString,
+		},
+		"max_credentials": {
+			Type: framework.TypeInt,
 		},
 	}
 }

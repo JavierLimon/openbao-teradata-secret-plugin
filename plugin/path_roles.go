@@ -92,6 +92,11 @@ func (b *Backend) pathRoles() *framework.Path {
 				Description: "SQL to run after password renewal",
 				Default:     "",
 			},
+			"max_credentials": {
+				Type:        framework.TypeInt,
+				Description: "Maximum number of credentials allowed for this role (0 = unlimited)",
+				Default:     0,
+			},
 		},
 
 		Operations: map[logical.Operation]framework.OperationHandler{
@@ -153,6 +158,7 @@ func (b *Backend) pathRoleCreate(ctx context.Context, req *logical.Request, data
 		RevocationStatement: data.Get("revocation_statement").(string),
 		RollbackStatement:   data.Get("rollback_statement").(string),
 		RenewalStatement:    data.Get("renewal_statement").(string),
+		MaxCredentials:      data.Get("max_credentials").(int),
 	}
 
 	entry, err := logical.StorageEntryJSON("roles/"+name, role)
@@ -176,6 +182,7 @@ func (b *Backend) pathRoleCreate(ctx context.Context, req *logical.Request, data
 			"statement_template":   role.StatementTemplate,
 			"creation_statement":   "***",
 			"revocation_statement": "***",
+			"max_credentials":      role.MaxCredentials,
 		},
 	}, nil
 }
@@ -208,6 +215,7 @@ func (b *Backend) pathRoleRead(ctx context.Context, req *logical.Request, data *
 		"revocation_statement": role.RevocationStatement,
 		"rollback_statement":   role.RollbackStatement,
 		"renewal_statement":    role.RenewalStatement,
+		"max_credentials":      role.MaxCredentials,
 	}
 
 	if role.DBPassword != "" {
@@ -234,6 +242,7 @@ func (b *Backend) pathRoleUpdate(ctx context.Context, req *logical.Request, data
 		RevocationStatement: data.Get("revocation_statement").(string),
 		RollbackStatement:   data.Get("rollback_statement").(string),
 		RenewalStatement:    data.Get("renewal_statement").(string),
+		MaxCredentials:      data.Get("max_credentials").(int),
 	}
 
 	entry, err := logical.StorageEntryJSON("roles/"+name, role)
@@ -249,11 +258,12 @@ func (b *Backend) pathRoleUpdate(ctx context.Context, req *logical.Request, data
 
 	return &logical.Response{
 		Data: map[string]interface{}{
-			"name":           name,
-			"db_user":        role.DBUser,
-			"default_ttl":    role.DefaultTTL,
-			"max_ttl":        role.MaxTTL,
-			"renewal_period": role.RenewalPeriod,
+			"name":            name,
+			"db_user":         role.DBUser,
+			"default_ttl":     role.DefaultTTL,
+			"max_ttl":         role.MaxTTL,
+			"renewal_period":  role.RenewalPeriod,
+			"max_credentials": role.MaxCredentials,
 		},
 	}, nil
 }
