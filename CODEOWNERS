@@ -1,0 +1,20 @@
+# Code Owners
+# This file defines who owns parts of this repository
+
+# Default owner for everything not matched below
+* @JavierLimon
+
+# Core plugin files
+/plugin/ @JavierLimon
+
+# ODBC connectivity
+/odbc/ @JavierLimon
+
+# Storage and registry
+/storage/ @JavierLimon
+
+# Documentation
+/docs/ @JavierLimon
+
+# Tests
+/**/*_test.go @JavierLimon
