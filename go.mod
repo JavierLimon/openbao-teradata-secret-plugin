@@ -2,7 +2,10 @@ module github.com/JavierLimon/openbao-teradata-secret-plugin
 
 go 1.24.0
 
-require github.com/openbao/openbao/sdk/v2 v2.5.1
+require (
+	github.com/openbao/openbao/api/v2 v2.5.1
+	github.com/openbao/openbao/sdk/v2 v2.5.1
+)
 
 require (
 	github.com/armon/go-metrics v0.4.1 // indirect
@@ -42,7 +45,6 @@ require (
 	github.com/oklog/run v1.2.0 // indirect
 	github.com/openbao/go-kms-wrapping/entropy/v2 v2.1.0 // indirect
 	github.com/openbao/go-kms-wrapping/v2 v2.6.0 // indirect
-	github.com/openbao/openbao/api/v2 v2.5.1 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
 	github.com/ryanuber/go-glob v1.0.0 // indirect
@@ -57,5 +59,3 @@ require (
 	google.golang.org/protobuf v1.36.11 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
-
-replace github.com/openbao/openbao/sdk/v2 => /Users/javierlimon/go/pkg/mod/github.com/openbao/openbao/sdk/v2@v2.5.1

@@ -26,3 +26,11 @@ type Role struct {
 	Account             string `json:"account"`
 	Fallback            bool   `json:"fallback"`
 }
+
+type Statement struct {
+	Name                string `json:"name"`
+	CreationStatement   string `json:"creation_statement"`
+	RevocationStatement string `json:"revocation_statement"`
+	RollbackStatement   string `json:"rollback_statement"`
+	RenewalStatement    string `json:"renewal_statement"`
+}

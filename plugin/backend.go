@@ -58,6 +58,7 @@ func (b *Backend) paths() []*framework.Path {
 		b.pathRoles(),
 		b.pathRoleList(),
 		b.pathStatements(),
+		b.pathStatementList(),
 		b.pathRotateRoot(),
 		b.pathCreds(),
 		b.pathHealth(),
