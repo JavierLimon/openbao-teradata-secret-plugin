@@ -64,6 +64,7 @@ func (b *Backend) Setup(ctx context.Context, cfg *logical.BackendConfig) error {
 
 	b.storage = cfg.StorageView
 	b.dbRegistry = storage.NewDBRegistry()
+	b.dbRegistry.StartHealthChecks()
 	b.credCache = newCredentialCache(5*time.Minute, 10000)
 	b.queryCache = newQueryResultCache(5*time.Minute, 1000)
 	b.rateLimiter = NewRateLimiterMiddleware(b, DefaultRateLimitConfig, true)
