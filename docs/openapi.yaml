@@ -1,0 +1,1600 @@
+openapi: 3.0.3
+info:
+  title: Teradata Secret Plugin API
+  description: |
+    Dynamic database credentials plugin for Teradata using ODBC.
+    
+    This plugin provides secure, dynamic database credential generation for Teradata databases.
+    All endpoints require a valid OpenBao token with appropriate policies.
+  version: 0.1.0
+  contact:
+    name: OpenBAO Teradata Plugin
+    url: https://github.com/JavierLimon/openbao-teradata-secret-plugin
+  license:
+    name: MPL-2.0
+    url: https://www.mozilla.org/en-US/MPL/2.0/
+servers:
+  - url: /v1/teradata
+    description: OpenBao Teradata plugin mount path
+tags:
+  - name: Configuration
+    description: Database connection configuration
+  - name: Roles
+    description: Role management for credential generation
+  - name: Credentials
+    description: Dynamic credential generation and management
+  - name: Leases
+    description: Lease lifecycle management
+  - name: Statements
+    description: SQL statement template management
+  - name: Monitoring
+    description: Health, readiness, and metrics endpoints
+  - name: v1 API
+    description: Backward compatible v1 API endpoints
+
+paths:
+  /config:
+    get:
+      tags: [Configuration]
+      summary: Read configuration
+      operationId: readConfig
+      responses:
+        '200':
+          description: Configuration retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConfigResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    post:
+      tags: [Configuration]
+      summary: Create/Update configuration
+      operationId: createConfig
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConfigRequest'
+      responses:
+        '200':
+          description: Configuration created/updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConfigResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+    delete:
+      tags: [Configuration]
+      summary: Delete configuration
+      operationId: deleteConfig
+      responses:
+        '204':
+          description: Configuration deleted successfully
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /config/{region}:
+    get:
+      tags: [Configuration]
+      summary: Read regional configuration
+      operationId: readRegionalConfig
+      parameters:
+        - name: region
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: '^[a-zA-Z0-9_-]+$'
+      responses:
+        '200':
+          description: Regional configuration retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConfigResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    post:
+      tags: [Configuration]
+      summary: Create/Update regional configuration
+      operationId: createRegionalConfig
+      parameters:
+        - name: region
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: '^[a-zA-Z0-9_-]+$'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConfigRequest'
+      responses:
+        '200':
+          description: Regional configuration created/updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConfigResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+    delete:
+      tags: [Configuration]
+      summary: Delete regional configuration
+      operationId: deleteRegionalConfig
+      parameters:
+        - name: region
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: '^[a-zA-Z0-9_-]+$'
+      responses:
+        '204':
+          description: Regional configuration deleted successfully
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /config/backup:
+    get:
+      tags: [Configuration]
+      summary: Backup all plugin configuration
+      operationId: backupConfig
+      responses:
+        '200':
+          description: Backup created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BackupResponse'
+
+  /config/restore:
+    post:
+      tags: [Configuration]
+      summary: Restore configuration from backup
+      operationId: restoreConfig
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - backup
+              properties:
+                backup:
+                  type: string
+                  description: Base64 encoded backup data
+      responses:
+        '200':
+          description: Configuration restored successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  restored:
+                    type: boolean
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /roles:
+    get:
+      tags: [Roles]
+      summary: List all roles
+      operationId: listRoles
+      responses:
+        '200':
+          description: Roles listed successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RolesListResponse'
+
+  /roles/{name}:
+    get:
+      tags: [Roles]
+      summary: Read role configuration
+      operationId: readRole
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: '^[a-zA-Z0-9_-]+$'
+      responses:
+        '200':
+          description: Role retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RoleResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    post:
+      tags: [Roles]
+      summary: Create/Update role
+      operationId: createRole
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: '^[a-zA-Z0-9_-]+$'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RoleRequest'
+      responses:
+        '200':
+          description: Role created/updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RoleResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+    delete:
+      tags: [Roles]
+      summary: Delete role
+      operationId: deleteRole
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: '^[a-zA-Z0-9_-]+$'
+      responses:
+        '204':
+          description: Role deleted successfully
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /creds/{name}:
+    get:
+      tags: [Credentials]
+      summary: Generate dynamic credentials
+      operationId: generateCredentials
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: '^[a-zA-Z0-9_-]+$'
+        - name: region
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Credentials generated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CredentialsResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /creds/batch/{name}:
+    get:
+      tags: [Credentials]
+      summary: Generate batch credentials
+      operationId: generateBatchCredentials
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: '^[a-zA-Z0-9_-]+$'
+        - name: count
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 1
+        - name: region
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Batch credentials generated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BatchCredentialsResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /revoke-cred/{username}:
+    delete:
+      tags: [Credentials]
+      summary: Revoke credential
+      operationId: revokeCredential
+      parameters:
+        - name: username
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: '^[a-zA-Z0-9_-]+$'
+      responses:
+        '200':
+          description: Credential revoked successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  revoked:
+                    type: boolean
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /renew-cred/{username}:
+    post:
+      tags: [Credentials]
+      summary: Renew credential password
+      operationId: renewCredential
+      parameters:
+        - name: username
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: '^[a-zA-Z0-9_-]+$'
+      responses:
+        '200':
+          description: Credential renewed successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CredentialRenewalResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /renew-cred/batch/{name}:
+    post:
+      tags: [Credentials]
+      summary: Batch renew credentials
+      operationId: batchRenewCredentials
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: '^[a-zA-Z0-9_-]+$'
+        - name: count
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+        - name: usernames
+          in: query
+          required: false
+          schema:
+            type: array
+            items:
+              type: string
+      responses:
+        '200':
+          description: Batch credentials renewed successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BatchRenewalResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /leases:
+    get:
+      tags: [Leases]
+      summary: List all leases
+      operationId: listLeases
+      responses:
+        '200':
+          description: Leases listed successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LeasesListResponse'
+
+  /leases/{lease_id}:
+    get:
+      tags: [Leases]
+      summary: Get lease information
+      operationId: getLease
+      parameters:
+        - name: lease_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Lease retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LeaseResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /leases/cleanup:
+    post:
+      tags: [Leases]
+      summary: Clean up expired credentials
+      operationId: cleanupLeases
+      responses:
+        '200':
+          description: Expired credentials cleaned up
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  cleaned:
+                    type: integer
+
+  /leases/extend/{lease_id}:
+    post:
+      tags: [Leases]
+      summary: Extend lease TTL
+      operationId: extendLease
+      parameters:
+        - name: lease_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: ttl
+          in: query
+          required: false
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Lease extended successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LeaseExtendResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /lookup-lease:
+    post:
+      tags: [Leases]
+      summary: Lookup lease by ID
+      operationId: lookupLease
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - lease_id
+              properties:
+                lease_id:
+                  type: string
+      responses:
+        '200':
+          description: Lease found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LeaseResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /statements:
+    get:
+      tags: [Statements]
+      summary: List statement templates
+      operationId: listStatements
+      responses:
+        '200':
+          description: Statement templates listed successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatementsListResponse'
+
+  /statements/{name}:
+    get:
+      tags: [Statements]
+      summary: Read statement template
+      operationId: readStatement
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: '^[a-zA-Z0-9_-]+$'
+      responses:
+        '200':
+          description: Statement template retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatementResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    post:
+      tags: [Statements]
+      summary: Create/Update statement template
+      operationId: createStatement
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: '^[a-zA-Z0-9_-]+$'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StatementRequest'
+      responses:
+        '200':
+          description: Statement template created/updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatementResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+    delete:
+      tags: [Statements]
+      summary: Delete statement template
+      operationId: deleteStatement
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: '^[a-zA-Z0-9_-]+$'
+      responses:
+        '204':
+          description: Statement template deleted successfully
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /rotate-root:
+    post:
+      tags: [Configuration]
+      summary: Rotate root credentials
+      operationId: rotateRoot
+      responses:
+        '200':
+          description: Root credentials rotated successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  rotated:
+                    type: boolean
+
+  /webhook/config:
+    get:
+      tags: [Configuration]
+      summary: Read webhook configuration
+      operationId: readWebhookConfig
+      responses:
+        '200':
+          description: Webhook configuration retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookConfigResponse'
+    post:
+      tags: [Configuration]
+      summary: Create/Update webhook configuration
+      operationId: createWebhookConfig
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WebhookConfigRequest'
+      responses:
+        '200':
+          description: Webhook configuration created/updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookConfigResponse'
+    delete:
+      tags: [Configuration]
+      summary: Delete webhook configuration
+      operationId: deleteWebhookConfig
+      responses:
+        '204':
+          description: Webhook configuration deleted successfully
+
+  /rate-limit/config:
+    get:
+      tags: [Monitoring]
+      summary: Read rate limit configuration
+      operationId: readRateLimitConfig
+      responses:
+        '200':
+          description: Rate limit configuration retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RateLimitConfigResponse'
+    post:
+      tags: [Monitoring]
+      summary: Update rate limit configuration
+      operationId: updateRateLimitConfig
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RateLimitConfigRequest'
+      responses:
+        '200':
+          description: Rate limit configuration updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RateLimitConfigResponse'
+
+  /rate-limit/status:
+    get:
+      tags: [Monitoring]
+      summary: Get rate limit status
+      operationId: getRateLimitStatus
+      responses:
+        '200':
+          description: Rate limit status retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RateLimitStatusResponse'
+
+  /health:
+    get:
+      tags: [Monitoring]
+      summary: Health check
+      operationId: healthCheck
+      responses:
+        '200':
+          description: Plugin is healthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+        '503':
+          description: Plugin is unhealthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+
+  /readiness:
+    get:
+      tags: [Monitoring]
+      summary: Readiness probe
+      operationId: readinessCheck
+      responses:
+        '200':
+          description: Plugin is ready
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReadinessResponse'
+        '503':
+          description: Plugin is not ready
+
+  /liveness:
+    get:
+      tags: [Monitoring]
+      summary: Liveness probe
+      operationId: livenessCheck
+      responses:
+        '200':
+          description: Plugin is alive
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LivenessResponse'
+
+  /version:
+    get:
+      tags: [Monitoring]
+      summary: Get plugin version
+      operationId: getVersion
+      responses:
+        '200':
+          description: Plugin version retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  version:
+                    type: string
+
+  /api-version:
+    get:
+      tags: [Monitoring]
+      summary: Get API version information
+      operationId: getAPIVersion
+      responses:
+        '200':
+          description: API version information retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIVersionResponse'
+
+  /info:
+    get:
+      tags: [Monitoring]
+      summary: Get database info
+      operationId: getDatabaseInfo
+      responses:
+        '200':
+          description: Database info retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DatabaseInfoResponse'
+
+  /pool-stats:
+    get:
+      tags: [Monitoring]
+      summary: Get connection pool statistics
+      operationId: getPoolStats
+      responses:
+        '200':
+          description: Pool statistics retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PoolStatsResponse'
+
+  /metrics:
+    get:
+      tags: [Monitoring]
+      summary: Get Prometheus metrics
+      operationId: getMetrics
+      responses:
+        '200':
+          description: Prometheus metrics
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /v1/config:
+    $ref: '#/components/pathItems/v1Config'
+
+  /v1/roles:
+    $ref: '#/components/pathItems/v1Roles'
+
+  /v1/roles/{name}:
+    $ref: '#/components/pathItems/v1RolesName'
+
+  /v1/creds/{name}:
+    $ref: '#/components/pathItems/v1Creds'
+
+  /v1/rotate-root:
+    $ref: '#/components/pathItems/v1RotateRoot'
+
+components:
+  schemas:
+    ConfigRequest:
+      type: object
+      properties:
+        connection_string:
+          type: string
+          description: ODBC connection string
+          example: "DSN=MyTeradata;UID=admin;PWD=password"
+        max_open_connections:
+          type: integer
+          description: Maximum open connections
+          default: 5
+          minimum: 1
+        max_idle_connections:
+          type: integer
+          description: Maximum idle connections
+          default: 2
+        connection_timeout:
+          type: integer
+          description: Connection timeout in seconds
+          default: 30
+        max_connection_lifetime:
+          type: integer
+          description: Maximum connection lifetime in seconds
+          default: 3600
+        idle_timeout:
+          type: integer
+          description: Idle timeout in seconds
+          default: 300
+        ssl_mode:
+          type: string
+          enum: [disable, allow, verify-ca, verify-full, require]
+          default: disable
+        ssl_cert:
+          type: string
+          description: Path to SSL certificate
+        ssl_key:
+          type: string
+          description: Path to SSL key
+        ssl_root_cert:
+          type: string
+          description: Path to SSL root CA
+        ssl_key_password:
+          type: string
+          description: SSL key password
+        ssl_cipher_suites:
+          type: string
+          description: Comma-separated SSL cipher suites
+        ssl_secure:
+          type: boolean
+          default: false
+        ssl_version:
+          type: string
+          description: SSL/TLS version (TLS 1.2, TLS 1.3)
+        session_variables:
+          type: object
+          additionalProperties:
+            type: string
+          description: Session variables for connections
+
+    ConfigResponse:
+      type: object
+      properties:
+        data:
+          type: object
+          properties:
+            connection_string:
+              type: string
+              description: Connection string (masked)
+            max_open_connections:
+              type: integer
+            max_idle_connections:
+              type: integer
+            connection_timeout:
+              type: integer
+            max_connection_lifetime:
+              type: integer
+            idle_timeout:
+              type: integer
+            ssl_mode:
+              type: string
+            ssl_secure:
+              type: boolean
+            initialized:
+              type: boolean
+
+    BackupResponse:
+      type: object
+      properties:
+        backup:
+          type: string
+          description: Base64 encoded backup data
+        version:
+          type: string
+        plugin_name:
+          type: string
+        roles_count:
+          type: integer
+        statements_count:
+          type: integer
+        config_exists:
+          type: boolean
+
+    RoleRequest:
+      type: object
+      required:
+        - db_user
+      properties:
+        db_user:
+          type: string
+          description: Database username template
+          example: "vault_user"
+        db_password:
+          type: string
+          description: Database password template (use {{password}} placeholder)
+        default_ttl:
+          type: integer
+          description: Default lease TTL in seconds
+          default: 3600
+          minimum: 1
+        max_ttl:
+          type: integer
+          description: Maximum lease TTL in seconds
+          default: 86400
+        renewal_period:
+          type: integer
+          description: Auto renewal period in seconds (0=disabled)
+          default: 0
+        statement_template:
+          type: string
+          description: Name of statement template to use
+        default_database:
+          type: string
+          default: "USER"
+        perm_space:
+          type: integer
+          description: Permanent space in bytes (0=unlimited)
+          default: 0
+        spool_space:
+          type: integer
+          description: Spool space in bytes
+          default: 0
+        account:
+          type: string
+          description: Account string
+        fallback:
+          type: boolean
+          description: Enable fallback protection
+          default: false
+        creation_statement:
+          type: string
+          description: SQL to run after CREATE USER
+          example: "GRANT SELECT ON mydb TO {{username}};"
+        revocation_statement:
+          type: string
+          description: SQL to run before DROP USER
+          example: "REVOKE ALL ON mydb FROM {{username}};"
+        rollback_statement:
+          type: string
+          description: SQL to run if user creation fails
+        renewal_statement:
+          type: string
+          description: SQL to run after password renewal
+        max_credentials:
+          type: integer
+          description: Maximum credentials allowed (0=unlimited)
+          default: 0
+        session_variables:
+          type: object
+          additionalProperties:
+            type: string
+          description: Session variables for user sessions
+
+    RoleResponse:
+      type: object
+      properties:
+        data:
+          type: object
+          properties:
+            name:
+              type: string
+            db_user:
+              type: string
+            default_ttl:
+              type: integer
+            max_ttl:
+              type: integer
+            renewal_period:
+              type: integer
+            statement_template:
+              type: string
+            default_database:
+              type: string
+            perm_space:
+              type: integer
+            spool_space:
+              type: integer
+            account:
+              type: string
+            fallback:
+              type: boolean
+            creation_statement:
+              type: string
+            revocation_statement:
+              type: string
+            rollback_statement:
+              type: string
+            renewal_statement:
+              type: string
+            max_credentials:
+              type: integer
+            current_credentials:
+              type: integer
+            session_variables:
+              type: object
+              additionalProperties:
+                type: string
+
+    RolesListResponse:
+      type: object
+      properties:
+        data:
+          type: object
+          properties:
+            keys:
+              type: array
+              items:
+                type: string
+
+    CredentialsResponse:
+      type: object
+      properties:
+        data:
+          type: object
+          properties:
+            username:
+              type: string
+              example: "vault_a1b2c3d4"
+            password:
+              type: string
+              example: "SecureP@ss123!"
+            ttl:
+              type: integer
+              description: Time to live in seconds
+            max_ttl:
+              type: integer
+            lease_id:
+              type: string
+            session_variables:
+              type: object
+              additionalProperties:
+                type: string
+
+    BatchCredentialsResponse:
+      type: object
+      properties:
+        credentials:
+          type: array
+          items:
+            $ref: '#/components/schemas/CredentialsResponse'
+        count:
+          type: integer
+        ttl:
+          type: integer
+        max_ttl:
+          type: integer
+        session_variables:
+          type: object
+          additionalProperties:
+            type: string
+
+    CredentialRenewalResponse:
+      type: object
+      properties:
+        data:
+          type: object
+          properties:
+            username:
+              type: string
+            password:
+              type: string
+            ttl:
+              type: integer
+            max_ttl:
+              type: integer
+            last_renewed:
+              type: integer
+              format: int64
+            expires_at:
+              type: integer
+              format: int64
+
+    BatchRenewalResponse:
+      type: object
+      properties:
+        results:
+          type: array
+          items:
+            type: object
+            properties:
+              username:
+                type: string
+              new_password:
+                type: string
+              ttl:
+                type: integer
+              max_ttl:
+                type: integer
+              expires_at:
+                type: integer
+        success_count:
+          type: integer
+        fail_count:
+          type: integer
+        total_count:
+          type: integer
+
+    LeaseResponse:
+      type: object
+      properties:
+        lease_id:
+          type: string
+        username:
+          type: string
+        role_name:
+          type: string
+        created_at:
+          type: integer
+          format: int64
+        expires_at:
+          type: integer
+          format: int64
+        expired:
+          type: boolean
+        last_renewed:
+          type: integer
+          format: int64
+        default_ttl:
+          type: integer
+        max_ttl:
+          type: integer
+        role_credential_count:
+          type: integer
+
+    LeasesListResponse:
+      type: object
+      properties:
+        leases:
+          type: array
+          items:
+            $ref: '#/components/schemas/LeaseResponse'
+        count:
+          type: integer
+
+    LeaseExtendResponse:
+      type: object
+      properties:
+        lease_id:
+          type: string
+        username:
+          type: string
+        role_name:
+          type: string
+        ttl:
+          type: integer
+        max_ttl:
+          type: integer
+        expires_at:
+          type: integer
+          format: int64
+        last_renewed:
+          type: integer
+          format: int64
+
+    StatementRequest:
+      type: object
+      properties:
+        creation_statement:
+          type: string
+          description: SQL to execute upon user creation
+        revocation_statement:
+          type: string
+          description: SQL to execute upon user revocation
+        rollback_statement:
+          type: string
+          description: SQL to execute if creation fails
+        renewal_statement:
+          type: string
+          description: SQL to execute upon credential renewal
+
+    StatementResponse:
+      type: object
+      properties:
+        data:
+          type: object
+          properties:
+            name:
+              type: string
+            creation_statement:
+              type: string
+            revocation_statement:
+              type: string
+            rollback_statement:
+              type: string
+            renewal_statement:
+              type: string
+
+    StatementsListResponse:
+      type: object
+      properties:
+        data:
+          type: object
+          properties:
+            keys:
+              type: array
+              items:
+                type: string
+
+    WebhookConfigRequest:
+      type: object
+      required:
+        - url
+      properties:
+        url:
+          type: string
+          format: uri
+          description: Webhook URL
+        enabled:
+          type: boolean
+          default: false
+        timeout_seconds:
+          type: integer
+          default: 30
+        retry_count:
+          type: integer
+          default: 3
+        events:
+          type: array
+          items:
+            type: string
+          description: Events to send webhooks for
+
+    WebhookConfigResponse:
+      type: object
+      properties:
+        data:
+          type: object
+          properties:
+            url:
+              type: string
+            enabled:
+              type: boolean
+            timeout_seconds:
+              type: integer
+            retry_count:
+              type: integer
+            events:
+              type: array
+              items:
+                type: string
+
+    RateLimitConfigRequest:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+        requests_per_second:
+          type: number
+          format: float
+        burst_size:
+          type: integer
+
+    RateLimitConfigResponse:
+      type: object
+      properties:
+        data:
+          type: object
+          properties:
+            enabled:
+              type: boolean
+            requests_per_second:
+              type: number
+              format: float
+            burst_size:
+              type: integer
+
+    RateLimitStatusResponse:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+        current_rps:
+          type: number
+          format: float
+        allowed:
+          type: boolean
+
+    HealthResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [healthy, degraded, uninitialized]
+        initialized:
+          type: boolean
+        pool_count:
+          type: integer
+        pool_status:
+          type: object
+        checked_at:
+          type: integer
+          format: int64
+
+    ReadinessResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [ready, not ready]
+        ready:
+          type: boolean
+        initialized:
+          type: boolean
+        error:
+          type: string
+
+    LivenessResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [alive]
+        alive:
+          type: boolean
+        version:
+          type: string
+
+    APIVersionResponse:
+      type: object
+      properties:
+        api_version:
+          type: string
+        api_version_major:
+          type: integer
+        api_version_minor:
+          type: integer
+        plugin_version:
+          type: string
+        min_supported_major:
+          type: integer
+        min_supported_minor:
+          type: integer
+
+    DatabaseInfoResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [connected, disconnected]
+        driver_name:
+          type: string
+        driver_version:
+          type: string
+        db_version:
+          type: string
+        db_name:
+          type: string
+        plugin_version:
+          type: string
+
+    PoolStatsResponse:
+      type: object
+      properties:
+        initialized:
+          type: boolean
+        total_pools:
+          type: integer
+        total_active:
+          type: integer
+        total_idle:
+          type: integer
+        total_in_use:
+          type: integer
+        total_wait_count:
+          type: integer
+        total_errors:
+          type: integer
+        pools:
+          type: array
+          items:
+            type: object
+
+  responses:
+    BadRequest:
+      description: Bad request - invalid parameters
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              errors:
+                type: array
+                items:
+                  type: string
+
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              errors:
+                type: array
+                items:
+                  type: string
+
+    Forbidden:
+      description: Permission denied
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              errors:
+                type: array
+                items:
+                  type: string
+
+    InternalError:
+      description: Internal server error
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              errors:
+                type: array
+                items:
+                  type: string
+
+  pathItems:
+    v1Config:
+      get:
+        tags: [v1 API]
+        summary: v1 - Read configuration
+        operationId: v1ReadConfig
+        responses:
+          '200':
+            description: Configuration retrieved successfully
+            content:
+              application/json:
+                schema:
+                  $ref: '#/components/schemas/ConfigResponse'
+      post:
+        tags: [v1 API]
+        summary: v1 - Create/Update configuration
+        operationId: v1CreateConfig
+        requestBody:
+          required: true
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConfigRequest'
+        responses:
+          '200':
+            description: Configuration created/updated successfully
+            content:
+              application/json:
+                schema:
+                  $ref: '#/components/schemas/ConfigResponse'
+      delete:
+        tags: [v1 API]
+        summary: v1 - Delete configuration
+        operationId: v1DeleteConfig
+        responses:
+          '204':
+            description: Configuration deleted successfully
+
+    v1Roles:
+      get:
+        tags: [v1 API]
+        summary: v1 - List roles
+        operationId: v1ListRoles
+        responses:
+          '200':
+            description: Roles listed successfully
+            content:
+              application/json:
+                schema:
+                  $ref: '#/components/schemas/RolesListResponse'
+
+    v1RolesName:
+      get:
+        tags: [v1 API]
+        summary: v1 - Read role
+        operationId: v1ReadRole
+        parameters:
+          - name: name
+            in: path
+            required: true
+            schema:
+              type: string
+        responses:
+          '200':
+            description: Role retrieved successfully
+            content:
+              application/json:
+                schema:
+                  $ref: '#/components/schemas/RoleResponse'
+      post:
+        tags: [v1 API]
+        summary: v1 - Create/Update role
+        operationId: v1CreateRole
+        parameters:
+          - name: name
+            in: path
+            required: true
+            schema:
+              type: string
+        requestBody:
+          required: true
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RoleRequest'
+        responses:
+          '200':
+            description: Role created/updated successfully
+            content:
+              application/json:
+                schema:
+                  $ref: '#/components/schemas/RoleResponse'
+      delete:
+        tags: [v1 API]
+        summary: v1 - Delete role
+        operationId: v1DeleteRole
+        parameters:
+          - name: name
+            in: path
+            required: true
+            schema:
+              type: string
+        responses:
+          '204':
+            description: Role deleted successfully
+
+    v1Creds:
+      get:
+        tags: [v1 API]
+        summary: v1 - Generate credentials
+        operationId: v1GenerateCredentials
+        parameters:
+          - name: name
+            in: path
+            required: true
+            schema:
+              type: string
+        responses:
+          '200':
+            description: Credentials generated successfully
+            content:
+              application/json:
+                schema:
+                  $ref: '#/components/schemas/CredentialsResponse'
+
+    v1RotateRoot:
+      post:
+        tags: [v1 API]
+        summary: v1 - Rotate root credentials
+        operationId: v1RotateRoot
+        responses:
+          '200':
+            description: Root credentials rotated successfully
+            content:
+              application/json:
+                schema:
+                  type: object
+                  properties:
+                    rotated:
+                      type: boolean
