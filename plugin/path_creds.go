@@ -12,6 +12,7 @@ import (
 	"github.com/JavierLimon/openbao-teradata-secret-plugin/audit"
 	"github.com/JavierLimon/openbao-teradata-secret-plugin/models"
 	teradb "github.com/JavierLimon/openbao-teradata-secret-plugin/odbc"
+	"github.com/JavierLimon/openbao-teradata-secret-plugin/webhook"
 	"github.com/openbao/openbao/sdk/v2/framework"
 	"github.com/openbao/openbao/sdk/v2/logical"
 )
@@ -30,6 +31,10 @@ func (b *Backend) pathCreds() *framework.Path {
 			"name": {
 				Type:        framework.TypeString,
 				Description: "Name of the role",
+			},
+			"region": {
+				Type:        framework.TypeString,
+				Description: "Region to generate credentials for (uses default config if not specified)",
 			},
 		},
 
@@ -56,6 +61,10 @@ func (b *Backend) pathCredsBatch() *framework.Path {
 				Type:        framework.TypeInt,
 				Description: "Number of credentials to generate (default: 1, max: 100)",
 			},
+			"region": {
+				Type:        framework.TypeString,
+				Description: "Region to generate credentials for (uses default config if not specified)",
+			},
 		},
 
 		Operations: map[logical.Operation]framework.OperationHandler{
@@ -68,6 +77,7 @@ func (b *Backend) pathCredsBatch() *framework.Path {
 
 func (b *Backend) pathCredsRead(ctx context.Context, req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
 	name := data.Get("name").(string)
+	region := data.Get("region").(string)
 
 	role, err := getRole(ctx, req.Storage, name)
 	if err != nil {
@@ -93,12 +103,23 @@ func (b *Backend) pathCredsRead(ctx context.Context, req *logical.Request, data 
 		}
 	}
 
-	cfg, err := getConfig(ctx, req.Storage)
-	if err != nil {
-		return nil, err
-	}
-	if cfg == nil {
-		return nil, fmt.Errorf("database configuration not found")
+	var cfg *models.Config
+	if region != "" {
+		cfg, err = getConfigByRegion(ctx, req.Storage, region)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get region config: %w", err)
+		}
+		if cfg == nil {
+			return nil, fmt.Errorf("configuration for region %q not found", region)
+		}
+	} else {
+		cfg, err = getConfig(ctx, req.Storage)
+		if err != nil {
+			return nil, err
+		}
+		if cfg == nil {
+			return nil, fmt.Errorf("database configuration not found")
+		}
 	}
 
 	creationStatement := role.CreationStatement
@@ -161,6 +182,7 @@ func (b *Backend) pathCredsRead(ctx context.Context, req *logical.Request, data 
 		LeaseID:   leaseID,
 		Username:  username,
 		RoleName:  name,
+		Region:    region,
 		CreatedAt: time.Now(),
 		ExpiresAt: expiresAt,
 	}
@@ -189,6 +211,7 @@ func (b *Backend) pathCredsRead(ctx context.Context, req *logical.Request, data 
 	}
 
 	_ = audit.LogCredentialCreation(ctx, req.Storage, username, name, leaseID, nil)
+	_ = webhook.SendCredentialCreatedWebhook(ctx, req.Storage, username, name, leaseID, nil)
 
 	return resp, nil
 }
@@ -196,6 +219,7 @@ func (b *Backend) pathCredsRead(ctx context.Context, req *logical.Request, data 
 func (b *Backend) pathCredsBatchRead(ctx context.Context, req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
 	name := data.Get("name").(string)
 	count := data.Get("count").(int)
+	region := data.Get("region").(string)
 
 	if count <= 0 {
 		count = 1
@@ -232,12 +256,23 @@ func (b *Backend) pathCredsBatchRead(ctx context.Context, req *logical.Request, 
 		}
 	}
 
-	cfg, err := getConfig(ctx, req.Storage)
-	if err != nil {
-		return nil, err
-	}
-	if cfg == nil {
-		return nil, fmt.Errorf("database configuration not found")
+	var cfg *models.Config
+	if region != "" {
+		cfg, err = getConfigByRegion(ctx, req.Storage, region)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get region config: %w", err)
+		}
+		if cfg == nil {
+			return nil, fmt.Errorf("configuration for region %q not found", region)
+		}
+	} else {
+		cfg, err = getConfig(ctx, req.Storage)
+		if err != nil {
+			return nil, err
+		}
+		if cfg == nil {
+			return nil, fmt.Errorf("database configuration not found")
+		}
 	}
 
 	creationStatement := role.CreationStatement
@@ -302,6 +337,7 @@ func (b *Backend) pathCredsBatchRead(ctx context.Context, req *logical.Request, 
 			LeaseID:   leaseID,
 			Username:  username,
 			RoleName:  name,
+			Region:    region,
 			CreatedAt: time.Now(),
 			ExpiresAt: expiresAt,
 		}
@@ -344,6 +380,7 @@ func (b *Backend) pathCredsBatchRead(ctx context.Context, req *logical.Request, 
 		if username, ok := cred["username"].(string); ok {
 			leaseID := fmt.Sprintf("teradata/creds/%s/%s", name, username)
 			_ = audit.LogCredentialCreation(ctx, req.Storage, username, name, leaseID, map[string]interface{}{"batch": true})
+			_ = webhook.SendCredentialCreatedWebhook(ctx, req.Storage, username, name, leaseID, map[string]interface{}{"batch": true})
 		}
 	}
 

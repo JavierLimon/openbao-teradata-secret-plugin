@@ -6,6 +6,7 @@ import (
 
 	"github.com/JavierLimon/openbao-teradata-secret-plugin/audit"
 	"github.com/JavierLimon/openbao-teradata-secret-plugin/models"
+	"github.com/JavierLimon/openbao-teradata-secret-plugin/webhook"
 	"github.com/openbao/openbao/sdk/v2/framework"
 	"github.com/openbao/openbao/sdk/v2/logical"
 )
@@ -176,6 +177,7 @@ func (b *Backend) pathRoleCreate(ctx context.Context, req *logical.Request, data
 	}
 
 	_ = audit.LogRoleCreation(ctx, req.Storage, name, role.DBUser, role.StatementTemplate)
+	_ = webhook.SendRoleCreatedWebhook(ctx, req.Storage, name, role.DBUser, role.StatementTemplate)
 
 	return &logical.Response{
 		Data: map[string]interface{}{
@@ -288,6 +290,7 @@ func (b *Backend) pathRoleUpdate(ctx context.Context, req *logical.Request, data
 	}
 
 	_ = audit.LogRoleUpdate(ctx, req.Storage, name, role.DBUser, role.StatementTemplate)
+	_ = webhook.SendRoleUpdatedWebhook(ctx, req.Storage, name, role.DBUser, role.StatementTemplate)
 
 	return &logical.Response{
 		Data: map[string]interface{}{
@@ -310,6 +313,7 @@ func (b *Backend) pathRoleDelete(ctx context.Context, req *logical.Request, data
 	}
 
 	_ = audit.LogRoleDeletion(ctx, req.Storage, name)
+	_ = webhook.SendRoleDeletedWebhook(ctx, req.Storage, name)
 
 	return nil, nil
 }

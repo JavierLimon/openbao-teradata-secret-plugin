@@ -7,8 +7,10 @@ import (
 	"sync"
 
 	"github.com/JavierLimon/openbao-teradata-secret-plugin/audit"
+	"github.com/JavierLimon/openbao-teradata-secret-plugin/models"
 	teradb "github.com/JavierLimon/openbao-teradata-secret-plugin/odbc"
 	"github.com/JavierLimon/openbao-teradata-secret-plugin/storage"
+	"github.com/JavierLimon/openbao-teradata-secret-plugin/webhook"
 	"github.com/openbao/openbao/sdk/v2/framework"
 	"github.com/openbao/openbao/sdk/v2/logical"
 )
@@ -62,6 +64,7 @@ func (b *Backend) paths() []*framework.Path {
 		b.pathConfigV1(),
 		b.pathConfigBackup(),
 		b.pathConfigRestore(),
+		b.pathWebhook(),
 		b.pathRoles(),
 		b.pathRolesV1(),
 		b.pathRoleList(),
@@ -105,12 +108,28 @@ func (b *Backend) Revoke(ctx context.Context, leaseID string) error {
 	roleName := parts[2]
 	username := parts[3]
 
-	cfg, err := getConfig(ctx, b.storage)
+	cred, err := getCredential(ctx, b.storage, username)
 	if err != nil {
-		return fmt.Errorf("failed to get config for revocation: %w", err)
+		return fmt.Errorf("failed to get credential for revocation: %w", err)
 	}
-	if cfg == nil {
-		return fmt.Errorf("database configuration not found")
+
+	var cfg *models.Config
+	if cred != nil && cred.Region != "" {
+		cfg, err = getConfigByRegion(ctx, b.storage, cred.Region)
+		if err != nil {
+			return fmt.Errorf("failed to get region config for revocation: %w", err)
+		}
+		if cfg == nil {
+			return fmt.Errorf("configuration for region %q not found", cred.Region)
+		}
+	} else {
+		cfg, err = getConfig(ctx, b.storage)
+		if err != nil {
+			return fmt.Errorf("failed to get config for revocation: %w", err)
+		}
+		if cfg == nil {
+			return fmt.Errorf("database configuration not found")
+		}
 	}
 
 	role, err := getRole(ctx, b.storage, roleName)
@@ -132,6 +151,7 @@ func (b *Backend) Revoke(ctx context.Context, leaseID string) error {
 	conn, err := teradb.Connect(cfg.ConnectionString)
 	if err != nil {
 		_ = audit.LogCredentialRevocation(ctx, b.storage, username, roleName, map[string]interface{}{"error": err.Error()})
+		_ = webhook.SendCredentialRevokedWebhook(ctx, b.storage, username, roleName, map[string]interface{}{"error": err.Error()})
 		return fmt.Errorf("failed to connect for revocation: %w", err)
 	}
 	defer conn.Close()
@@ -139,10 +159,12 @@ func (b *Backend) Revoke(ctx context.Context, leaseID string) error {
 	err = conn.ExecuteMultipleStatements(dropSQL)
 	if err != nil {
 		_ = audit.LogCredentialRevocation(ctx, b.storage, username, roleName, map[string]interface{}{"error": err.Error()})
+		_ = webhook.SendCredentialRevokedWebhook(ctx, b.storage, username, roleName, map[string]interface{}{"error": err.Error()})
 		return fmt.Errorf("failed to revoke credential: %w", err)
 	}
 
 	_ = audit.LogCredentialRevocation(ctx, b.storage, username, roleName, nil)
+	_ = webhook.SendCredentialRevokedWebhook(ctx, b.storage, username, roleName, nil)
 	return nil
 }
 

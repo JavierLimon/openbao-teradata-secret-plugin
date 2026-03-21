@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/JavierLimon/openbao-teradata-secret-plugin/audit"
+	"github.com/JavierLimon/openbao-teradata-secret-plugin/webhook"
 	"github.com/openbao/openbao/sdk/v2/framework"
 	"github.com/openbao/openbao/sdk/v2/logical"
 )
@@ -24,6 +25,7 @@ func (b *Backend) pathRotateRoot() *framework.Path {
 
 func (b *Backend) pathRotateRootHandler(ctx context.Context, req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
 	_ = audit.LogRootRotation(ctx, req.Storage, true, "")
+	_ = webhook.SendRootRotatedWebhook(ctx, req.Storage, true, "")
 
 	return &logical.Response{
 		Data: map[string]interface{}{

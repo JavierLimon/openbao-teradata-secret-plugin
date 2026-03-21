@@ -1,6 +1,7 @@
 package models
 
 type Config struct {
+	Region             string `json:"region"`
 	ConnectionString   string `json:"connection_string"`
 	MaxOpenConnections int    `json:"max_open_connections"`
 	MaxIdleConnections int    `json:"max_idle_connections"`
