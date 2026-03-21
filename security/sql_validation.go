@@ -98,6 +98,9 @@ func detectStatementType(stmt string) StatementType {
 	if strings.HasPrefix(upper, "REVOKE") {
 		return StatementTypeREVOKE
 	}
+	if strings.HasPrefix(upper, "CALL") {
+		return StatementTypeCALL
+	}
 	return StatementTypeUnknown
 }
 
@@ -187,6 +190,31 @@ func ValidateSQLStatement(statement string) error {
 					(after == "" || (!unicode.IsLetter([]rune(after)[0]) && after != "_" && after != "(" && after != ","))
 				if isWordBoundary {
 					return fmt.Errorf("%w: SQL keyword '%s' not allowed in user statements", ErrDangerousPattern, keyword)
+				}
+			}
+		}
+	} else if stmtType == StatementTypeCALL {
+		callSkipKeywords := map[string]bool{
+			"CALL": true, "EXECUTE": true, "ON": true, "WITH": true,
+		}
+		for _, keyword := range dangerousStatementKeywords {
+			if callSkipKeywords[keyword] {
+				continue
+			}
+			if strings.Contains(upperStatement, keyword) {
+				idx := strings.Index(upperStatement, keyword)
+				before := ""
+				if idx > 0 {
+					before = string(upperStatement[idx-1])
+				}
+				after := ""
+				if idx+len(keyword) < len(upperStatement) {
+					after = string(upperStatement[idx+len(keyword)])
+				}
+				isWordBoundary := (before == "" || !unicode.IsLetter([]rune(before)[0])) &&
+					(after == "" || (!unicode.IsLetter([]rune(after)[0]) && after != "_" && after != "("))
+				if isWordBoundary {
+					return fmt.Errorf("%w: SQL keyword '%s' not allowed in CALL statements", ErrDangerousPattern, keyword)
 				}
 			}
 		}
@@ -366,4 +394,5 @@ const (
 	StatementTypeUnknown StatementType = iota
 	StatementTypeGRANT
 	StatementTypeREVOKE
+	StatementTypeCALL
 )

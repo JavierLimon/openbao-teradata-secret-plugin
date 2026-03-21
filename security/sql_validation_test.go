@@ -268,6 +268,39 @@ func TestValidateSQLStatement(t *testing.T) {
 			statement: "GRANT SELECT (col1, col2) ON mydb TO myuser",
 			wantError: false,
 		},
+		{
+			name:      "valid CALL to stored procedure",
+			statement: "CALL myproc({{username}}, {{password}})",
+			wantError: false,
+		},
+		{
+			name:      "valid CALL lowercase",
+			statement: "call myproc({{username}}, {{password}})",
+			wantError: false,
+		},
+		{
+			name:      "valid CALL with EXECUTE",
+			statement: "CALL myproc({{username}})",
+			wantError: false,
+		},
+		{
+			name:      "CALL with dangerous SELECT",
+			statement: "CALL myproc(SELECT * FROM users)",
+			wantError: true,
+			errType:   ErrDangerousPattern,
+		},
+		{
+			name:      "CALL with dangerous DROP",
+			statement: "CALL myproc({{username}}); DROP USER {{username}}",
+			wantError: true,
+			errType:   ErrDangerousPattern,
+		},
+		{
+			name:      "CALL with semicolon",
+			statement: "CALL myproc({{username}});",
+			wantError: true,
+			errType:   ErrDangerousPattern,
+		},
 	}
 
 	for _, tt := range tests {
