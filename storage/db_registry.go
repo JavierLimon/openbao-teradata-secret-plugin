@@ -54,24 +54,34 @@ type DBConnection struct {
 }
 
 type DBRegistry struct {
-	connections  map[string]*DBConnection
-	mu           sync.RWMutex
-	ctx          context.Context
-	cancel       context.CancelFunc
-	healthDone   chan struct{}
-	cleanupDone  chan struct{}
-	minConnsDone chan struct{}
+	connections    map[string]*DBConnection
+	mu             sync.RWMutex
+	healthCtx      context.Context
+	healthCancel   context.CancelFunc
+	healthDone     chan struct{}
+	cleanupCtx     context.Context
+	cleanupCancel  context.CancelFunc
+	cleanupDone    chan struct{}
+	minConnsCtx    context.Context
+	minConnsCancel context.CancelFunc
+	minConnsDone   chan struct{}
 }
 
 func NewDBRegistry() *DBRegistry {
-	ctx, cancel := context.WithCancel(context.Background())
+	healthCtx, healthCancel := context.WithCancel(context.Background())
+	cleanupCtx, cleanupCancel := context.WithCancel(context.Background())
+	minConnsCtx, minConnsCancel := context.WithCancel(context.Background())
 	return &DBRegistry{
-		connections:  make(map[string]*DBConnection),
-		ctx:          ctx,
-		cancel:       cancel,
-		healthDone:   make(chan struct{}),
-		cleanupDone:  make(chan struct{}),
-		minConnsDone: make(chan struct{}),
+		connections:    make(map[string]*DBConnection),
+		healthCtx:      healthCtx,
+		healthCancel:   healthCancel,
+		healthDone:     make(chan struct{}),
+		cleanupCtx:     cleanupCtx,
+		cleanupCancel:  cleanupCancel,
+		cleanupDone:    make(chan struct{}),
+		minConnsCtx:    minConnsCtx,
+		minConnsCancel: minConnsCancel,
+		minConnsDone:   make(chan struct{}),
 	}
 }
 
@@ -81,7 +91,7 @@ func (r *DBRegistry) StartHealthChecks() {
 		defer ticker.Stop()
 		for {
 			select {
-			case <-r.ctx.Done():
+			case <-r.healthCtx.Done():
 				close(r.healthDone)
 				return
 			case <-ticker.C:
@@ -92,7 +102,7 @@ func (r *DBRegistry) StartHealthChecks() {
 }
 
 func (r *DBRegistry) StopHealthChecks() {
-	r.cancel()
+	r.healthCancel()
 	<-r.healthDone
 }
 
@@ -105,7 +115,7 @@ func (r *DBRegistry) StartCleanupJob(interval time.Duration) {
 		defer ticker.Stop()
 		for {
 			select {
-			case <-r.ctx.Done():
+			case <-r.cleanupCtx.Done():
 				close(r.cleanupDone)
 				return
 			case <-ticker.C:
@@ -116,7 +126,7 @@ func (r *DBRegistry) StartCleanupJob(interval time.Duration) {
 }
 
 func (r *DBRegistry) StopCleanupJob() {
-	r.cancel()
+	r.cleanupCancel()
 	<-r.cleanupDone
 }
 
@@ -381,7 +391,7 @@ func (c *DBConnection) pingAndTrackConnection() error {
 
 func (r *DBRegistry) StartMinConnectionsJob() {
 	interval := 30 * time.Second
-	if r.ctx.Err() != nil {
+	if r.minConnsCtx.Err() != nil {
 		return
 	}
 	go func() {
@@ -390,7 +400,7 @@ func (r *DBRegistry) StartMinConnectionsJob() {
 		r.EnsureMinConnections()
 		for {
 			select {
-			case <-r.ctx.Done():
+			case <-r.minConnsCtx.Done():
 				close(r.minConnsDone)
 				return
 			case <-ticker.C:
@@ -401,7 +411,7 @@ func (r *DBRegistry) StartMinConnectionsJob() {
 }
 
 func (r *DBRegistry) StopMinConnectionsJob() {
-	r.cancel()
+	r.minConnsCancel()
 	<-r.minConnsDone
 }
 
@@ -447,4 +457,27 @@ func (r *DBRegistry) GetConnectionStats(name string) (state ConnectionState, ope
 	idleConns = conn.Database.Stats().Idle
 
 	return state, openConns, idleConns, err
+}
+
+func (r *DBRegistry) Shutdown() {
+	r.healthCancel()
+	r.cleanupCancel()
+	r.minConnsCancel()
+
+	<-r.healthDone
+	<-r.cleanupDone
+	<-r.minConnsDone
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	for name, conn := range r.connections {
+		if conn != nil && conn.Database != nil {
+			conn.mu.Lock()
+			conn.state = StateClosed
+			conn.Database.Close()
+			conn.mu.Unlock()
+		}
+		delete(r.connections, name)
+	}
 }

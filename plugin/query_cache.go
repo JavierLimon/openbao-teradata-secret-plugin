@@ -14,14 +14,14 @@ import (
 )
 
 type queryResultCache struct {
-	mu          sync.RWMutex
-	entries     map[string]*queryCacheEntry
-	ttl         time.Duration
-	maxSize     int
-	hitCount    int64
-	missCount   int64
-	evictCount  int64
-	cleanerDone chan struct{}
+	mu         sync.RWMutex
+	entries    map[string]*queryCacheEntry
+	ttl        time.Duration
+	maxSize    int
+	hitCount   int64
+	missCount  int64
+	evictCount int64
+	done       chan struct{}
 }
 
 type queryCacheEntry struct {
@@ -62,10 +62,10 @@ func newQueryResultCache(ttl time.Duration, maxSize int) *queryResultCache {
 	}
 
 	cache := &queryResultCache{
-		entries:     make(map[string]*queryCacheEntry),
-		ttl:         ttl,
-		maxSize:     maxSize,
-		cleanerDone: make(chan struct{}),
+		entries: make(map[string]*queryCacheEntry),
+		ttl:     ttl,
+		maxSize: maxSize,
+		done:    make(chan struct{}),
 	}
 	go cache.backgroundCleanup()
 	return cache
@@ -193,13 +193,22 @@ func (c *queryResultCache) evictLRU() {
 }
 
 func (c *queryResultCache) backgroundCleanup() {
-	defer close(c.cleanerDone)
 	ticker := time.NewTicker(c.ttl / 2)
 	defer ticker.Stop()
+	defer close(c.done)
 
-	for range ticker.C {
-		c.cleanupExpired()
+	for {
+		select {
+		case <-c.done:
+			return
+		case <-ticker.C:
+			c.cleanupExpired()
+		}
 	}
+}
+
+func (c *queryResultCache) Close() {
+	close(c.done)
 }
 
 func (c *queryResultCache) cleanupExpired() {
@@ -213,10 +222,6 @@ func (c *queryResultCache) cleanupExpired() {
 			c.evictCount++
 		}
 	}
-}
-
-func (c *queryResultCache) Close() {
-	c.cleanupExpired()
 }
 
 type CacheKeyBuilder struct{}

@@ -17,6 +17,7 @@ type credentialCache struct {
 	hitCount   int64
 	missCount  int64
 	evictCount int64
+	done       chan struct{}
 }
 
 type cacheEntry struct {
@@ -30,6 +31,7 @@ func newCredentialCache(ttl time.Duration, maxSize int) *credentialCache {
 		entries: make(map[string]*cacheEntry),
 		ttl:     ttl,
 		maxSize: maxSize,
+		done:    make(chan struct{}),
 	}
 	go cache.backgroundCleanup()
 	return cache
@@ -131,9 +133,18 @@ func (c *credentialCache) backgroundCleanup() {
 	ticker := time.NewTicker(c.ttl / 2)
 	defer ticker.Stop()
 
-	for range ticker.C {
-		c.cleanupExpired()
+	for {
+		select {
+		case <-c.done:
+			return
+		case <-ticker.C:
+			c.cleanupExpired()
+		}
 	}
+}
+
+func (c *credentialCache) Close() {
+	close(c.done)
 }
 
 func (c *credentialCache) cleanupExpired() {
