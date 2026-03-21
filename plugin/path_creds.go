@@ -357,6 +357,9 @@ func generatePassword() string {
 
 func ensurePasswordRequirements(password string) string {
 	runes := []rune(password)
+	if len(runes) == 0 {
+		return password
+	}
 	hasLower := false
 	hasUpper := false
 	hasDigit := false
