@@ -53,7 +53,7 @@ func TestPathConfigWrite(t *testing.T) {
 			name:             "empty connection string",
 			connectionString: "",
 			wantErr:          true,
-			errContains:      "invalid connection string",
+			errContains:      "either connection_string or connection_string_template is required",
 		},
 		{
 			name:             "whitespace connection string",
@@ -371,6 +371,27 @@ func getConfigFieldSchema() map[string]*framework.FieldSchema {
 			Type: framework.TypeString,
 		},
 		"connection_string": {
+			Type: framework.TypeString,
+		},
+		"connection_string_template": {
+			Type: framework.TypeString,
+		},
+		"server": {
+			Type: framework.TypeString,
+		},
+		"servers": {
+			Type: framework.TypeString,
+		},
+		"port": {
+			Type: framework.TypeInt,
+		},
+		"database": {
+			Type: framework.TypeString,
+		},
+		"username": {
+			Type: framework.TypeString,
+		},
+		"password": {
 			Type: framework.TypeString,
 		},
 		"min_connections": {

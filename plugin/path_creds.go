@@ -557,7 +557,10 @@ func executeSQL(ctx context.Context, cfg *models.Config, sql string) (interface{
 	var result interface{}
 	var err error
 
-	connString := teradb.AppendQueryTimeout(cfg.ConnectionString, cfg.QueryTimeout)
+	connString, err := buildConnectionString(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to build connection string: %w", err)
+	}
 
 	err = retry.Do(ctx, nil, func() error {
 		conn, connErr := teradb.Connect(connString)
@@ -578,6 +581,31 @@ func executeSQL(ctx context.Context, cfg *models.Config, sql string) (interface{
 	}
 
 	return result, nil
+}
+
+func buildConnectionString(cfg *models.Config) (string, error) {
+	if cfg.ConnectionString != "" {
+		return teradb.AppendQueryTimeout(cfg.ConnectionString, cfg.QueryTimeout), nil
+	}
+
+	if cfg.ConnectionStringTemplate != "" {
+		params := map[string]string{
+			"server":   cfg.Server,
+			"servers":  cfg.Servers,
+			"port":     fmt.Sprintf("%d", cfg.Port),
+			"database": cfg.Database,
+			"username": cfg.Username,
+			"password": cfg.Password,
+		}
+
+		connStr, err := teradb.BuildConnectionStringFromTemplate(cfg.ConnectionStringTemplate, params)
+		if err != nil {
+			return "", err
+		}
+		return teradb.AppendQueryTimeout(connStr, cfg.QueryTimeout), nil
+	}
+
+	return "", fmt.Errorf("no connection string or template configured")
 }
 
 func executeGrantStatements(ctx context.Context, connString, grantStatements string) error {
