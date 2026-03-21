@@ -158,6 +158,26 @@ func (b *Backend) pathCredsRead(ctx context.Context, req *logical.Request, data 
 		}
 	}
 
+	if b.IsDegraded() || !b.IsPoolHealthy(region) {
+		canOperate, reason := b.CanOperate(region)
+		if !canOperate {
+			degradedSince := b.DegradedSince()
+			degradationInfo := map[string]interface{}{
+				"error":                     "database unavailable - graceful degradation mode active",
+				"reason":                    reason,
+				"degraded":                  true,
+				"graceful_degradation_mode": true,
+			}
+			if !degradedSince.IsZero() {
+				degradationInfo["degraded_since"] = degradedSince
+			}
+			return &logical.Response{
+				Data:     degradationInfo,
+				Warnings: []string{"Database is currently unavailable. Credential creation is not possible in graceful degradation mode."},
+			}, fmt.Errorf("cannot create credentials: %s", reason)
+		}
+	}
+
 	creationStatement := role.CreationStatement
 	rollbackStatement := role.RollbackStatement
 
@@ -316,6 +336,26 @@ func (b *Backend) pathCredsBatchRead(ctx context.Context, req *logical.Request, 
 		}
 		if cfg == nil {
 			return nil, fmt.Errorf("database configuration not found")
+		}
+	}
+
+	if b.IsDegraded() || !b.IsPoolHealthy(region) {
+		canOperate, reason := b.CanOperate(region)
+		if !canOperate {
+			degradedSince := b.DegradedSince()
+			degradationInfo := map[string]interface{}{
+				"error":                     "database unavailable - graceful degradation mode active",
+				"reason":                    reason,
+				"degraded":                  true,
+				"graceful_degradation_mode": true,
+			}
+			if !degradedSince.IsZero() {
+				degradationInfo["degraded_since"] = degradedSince
+			}
+			return &logical.Response{
+				Data:     degradationInfo,
+				Warnings: []string{"Database is currently unavailable. Batch credential creation is not possible in graceful degradation mode."},
+			}, fmt.Errorf("cannot create credentials: %s", reason)
 		}
 	}
 

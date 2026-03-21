@@ -8,6 +8,7 @@ import (
 
 	"github.com/JavierLimon/openbao-teradata-secret-plugin/logging"
 	"github.com/JavierLimon/openbao-teradata-secret-plugin/odbc"
+	"github.com/JavierLimon/openbao-teradata-secret-plugin/storage"
 	"github.com/openbao/openbao/sdk/v2/framework"
 	"github.com/openbao/openbao/sdk/v2/logical"
 )
@@ -36,9 +37,10 @@ func (b *Backend) pathHealthRead(ctx context.Context, req *logical.Request, data
 		)
 		return &logical.Response{
 			Data: map[string]interface{}{
-				"status":      "unhealthy",
-				"initialized": false,
-				"error":       err.Error(),
+				"status":               "unhealthy",
+				"initialized":          false,
+				"error":                err.Error(),
+				"graceful_degradation": b.IsDegraded(),
 			},
 		}, nil
 	}
@@ -46,10 +48,15 @@ func (b *Backend) pathHealthRead(ctx context.Context, req *logical.Request, data
 	if cfg == nil {
 		return &logical.Response{
 			Data: map[string]interface{}{
-				"status":      "uninitialized",
-				"initialized": false,
+				"status":               "uninitialized",
+				"initialized":          false,
+				"graceful_degradation": b.IsDegraded(),
 			},
 		}, nil
+	}
+
+	if cfg.GracefulDegradationMode {
+		b.SetGracefulDegradation(true)
 	}
 
 	registry := b.getDBRegistry()
@@ -57,6 +64,8 @@ func (b *Backend) pathHealthRead(ctx context.Context, req *logical.Request, data
 
 	poolStatus := make(map[string]interface{})
 	overallHealthy := true
+	degradedPools := []string{}
+	healthyPools := []string{}
 
 	for _, name := range connectionNames {
 		state, openConns, idleConns, connErr := registry.GetConnectionStats(name)
@@ -78,9 +87,15 @@ func (b *Backend) pathHealthRead(ctx context.Context, req *logical.Request, data
 		if connErr != nil {
 			poolInfo["error"] = connErr.Error()
 			overallHealthy = false
+			degradedPools = append(degradedPools, name)
 			logging.LogConnectionEvent(nil, "health_check_failed", name, map[string]interface{}{
 				"error": connErr.Error(),
 			})
+		} else if state != storage.StateHealthy {
+			overallHealthy = false
+			degradedPools = append(degradedPools, name)
+		} else {
+			healthyPools = append(healthyPools, name)
 		}
 
 		poolStatus[name] = poolInfo
@@ -89,9 +104,14 @@ func (b *Backend) pathHealthRead(ctx context.Context, req *logical.Request, data
 	status := "healthy"
 	if !overallHealthy {
 		status = "degraded"
+		b.SetGracefulDegradation(true)
 	}
 	if len(connectionNames) == 0 {
 		status = "configured_no_connections"
+	}
+
+	if overallHealthy && len(connectionNames) > 0 {
+		b.SetGracefulDegradation(false)
 	}
 
 	logging.Default().Info("health_check_completed",
@@ -100,14 +120,29 @@ func (b *Backend) pathHealthRead(ctx context.Context, req *logical.Request, data
 		slog.Time("timestamp", time.Now()),
 	)
 
+	respData := map[string]interface{}{
+		"status":               status,
+		"initialized":          true,
+		"pool_count":           len(connectionNames),
+		"pool_status":          poolStatus,
+		"checked_at":           time.Now(),
+		"graceful_degradation": b.IsDegraded(),
+		"degraded_pools":       degradedPools,
+		"healthy_pools":        healthyPools,
+	}
+
+	if b.IsDegraded() && !b.DegradedSince().IsZero() {
+		respData["degraded_since"] = b.DegradedSince()
+		respData["degradation_duration_seconds"] = time.Since(b.DegradedSince()).Seconds()
+	}
+
+	if cfg.GracefulDegradationMode {
+		respData["graceful_degradation_mode_enabled"] = true
+		respData["graceful_degradation_note"] = "Plugin is operating in graceful degradation mode. Credential operations may be limited."
+	}
+
 	return &logical.Response{
-		Data: map[string]interface{}{
-			"status":      status,
-			"initialized": true,
-			"pool_count":  len(connectionNames),
-			"pool_status": poolStatus,
-			"checked_at":  time.Now(),
-		},
+		Data: respData,
 	}, nil
 }
 
