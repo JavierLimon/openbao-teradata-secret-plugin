@@ -6,7 +6,8 @@ import (
 	"strings"
 	"time"
 
-	teradb "github.com/JavierLimon/openbao-teradata-secret-plugin/odbc"
+	"github.com/JavierLimon/openbao-teradata-secret-plugin/odbc"
+	"github.com/JavierLimon/openbao-teradata-secret-plugin/retry"
 	"github.com/openbao/openbao/sdk/v2/framework"
 	"github.com/openbao/openbao/sdk/v2/logical"
 )
@@ -35,7 +36,7 @@ func (b *Backend) pathRenewCreds() *framework.Path {
 func (b *Backend) pathRenewCredsHandler(ctx context.Context, req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
 	username := data.Get("username").(string)
 
-	if err := teradb.ValidateUsername(username); err != nil {
+	if err := odbc.ValidateUsername(username); err != nil {
 		return nil, fmt.Errorf("invalid username: %w", err)
 	}
 
@@ -65,13 +66,19 @@ func (b *Backend) pathRenewCredsHandler(ctx context.Context, req *logical.Reques
 
 	newPassword := generatePassword()
 
-	conn, err := teradb.Connect(cfg.ConnectionString)
+	var conn *odbc.Connection
+	err = retry.Do(ctx, nil, func() error {
+		conn, err = odbc.Connect(cfg.ConnectionString)
+		return err
+	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to connect to database: %w", err)
+		return nil, fmt.Errorf("failed to connect to database after retries: %w", err)
 	}
 	defer conn.Close()
 
-	err = teradb.AlterUserPassword(conn.DB(), username, newPassword)
+	err = retry.Do(ctx, nil, func() error {
+		return odbc.AlterUserPassword(conn.DB(), username, newPassword)
+	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to rotate password: %w", err)
 	}
@@ -92,7 +99,9 @@ func (b *Backend) pathRenewCredsHandler(ctx context.Context, req *logical.Reques
 		renewalSQL = strings.ReplaceAll(renewalSQL, "{{username}}", username)
 		renewalSQL = strings.ReplaceAll(renewalSQL, "{{password}}", newPassword)
 
-		err = conn.ExecuteMultipleStatements(renewalSQL)
+		err = retry.Do(ctx, nil, func() error {
+			return conn.ExecuteMultipleStatements(renewalSQL)
+		})
 		if err != nil {
 			return nil, fmt.Errorf("failed to execute renewal statement: %w", err)
 		}

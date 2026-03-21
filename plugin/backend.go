@@ -9,7 +9,8 @@ import (
 
 	"github.com/JavierLimon/openbao-teradata-secret-plugin/audit"
 	"github.com/JavierLimon/openbao-teradata-secret-plugin/models"
-	teradb "github.com/JavierLimon/openbao-teradata-secret-plugin/odbc"
+	"github.com/JavierLimon/openbao-teradata-secret-plugin/odbc"
+	"github.com/JavierLimon/openbao-teradata-secret-plugin/retry"
 	"github.com/JavierLimon/openbao-teradata-secret-plugin/storage"
 	"github.com/JavierLimon/openbao-teradata-secret-plugin/webhook"
 	"github.com/openbao/openbao/sdk/v2/framework"
@@ -192,15 +193,25 @@ func (b *Backend) Revoke(ctx context.Context, leaseID string) error {
 	var revokeSQL string
 	if role != nil && role.RevocationStatement != "" {
 		revokeSQL = strings.ReplaceAll(role.RevocationStatement, "{{username}}", username)
-		conn, err := teradb.Connect(cfg.ConnectionString)
+		var conn *odbc.Connection
+		err = retry.Do(ctx, nil, func() error {
+			conn, err = odbc.Connect(cfg.ConnectionString)
+			return err
+		})
 		if err == nil {
-			conn.ExecuteMultipleStatements(revokeSQL)
+			retry.Do(ctx, nil, func() error {
+				return conn.ExecuteMultipleStatements(revokeSQL)
+			})
 			conn.Close()
 		}
 	}
 
 	dropSQL := fmt.Sprintf("DROP USER %s", username)
-	conn, err := teradb.Connect(cfg.ConnectionString)
+	var conn *odbc.Connection
+	err = retry.Do(ctx, nil, func() error {
+		conn, err = odbc.Connect(cfg.ConnectionString)
+		return err
+	})
 	if err != nil {
 		_ = audit.LogCredentialRevocation(ctx, b.storage, username, roleName, map[string]interface{}{"error": err.Error()})
 		_ = webhook.SendCredentialRevokedWebhook(ctx, b.storage, username, roleName, map[string]interface{}{"error": err.Error()})
@@ -208,7 +219,9 @@ func (b *Backend) Revoke(ctx context.Context, leaseID string) error {
 	}
 	defer conn.Close()
 
-	err = conn.ExecuteMultipleStatements(dropSQL)
+	err = retry.Do(ctx, nil, func() error {
+		return conn.ExecuteMultipleStatements(dropSQL)
+	})
 	if err != nil {
 		_ = audit.LogCredentialRevocation(ctx, b.storage, username, roleName, map[string]interface{}{"error": err.Error()})
 		_ = webhook.SendCredentialRevokedWebhook(ctx, b.storage, username, roleName, map[string]interface{}{"error": err.Error()})
