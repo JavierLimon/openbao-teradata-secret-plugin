@@ -13,31 +13,42 @@ import (
 	"github.com/JavierLimon/openbao-teradata-secret-plugin/retry"
 )
 
+type EvictionPolicy string
+
+const (
+	EvictionPolicyLIFO EvictionPolicy = "lifo"
+	EvictionPolicyFIFO EvictionPolicy = "fifo"
+)
+
 type DBConfig struct {
-	Name                  string        `json:"name"`
-	ConnectionString      string        `json:"connection_string"`
-	MinConnections        int           `json:"min_connections"`
-	MaxOpenConnections    int           `json:"max_open_connections"`
-	MaxIdleConnections    int           `json:"max_idle_connections"`
-	ConnectionTimeout     time.Duration `json:"connection_timeout"`
-	MaxConnectionLifetime time.Duration `json:"max_connection_lifetime"`
-	IdleTimeout           time.Duration `json:"idle_timeout"`
-	HealthCheckInterval   time.Duration `json:"health_check_interval"`
-	HealthCheckTimeout    time.Duration `json:"health_check_timeout"`
-	MinConnCheckInterval  time.Duration `json:"min_conn_check_interval"`
-	SSLMode               string        `json:"ssl_mode"`
-	SSLCert               string        `json:"ssl_cert"`
-	SSLKey                string        `json:"ssl_key"`
-	SSLRootCert           string        `json:"ssl_root_cert"`
-	SSLKeyPassword        string        `json:"ssl_key_password"`
-	SSLCipherSuites       string        `json:"ssl_cipher_suites"`
-	SSLSecure             bool          `json:"ssl_secure"`
-	SSLVersion            string        `json:"ssl_version"`
-	MaxRetries            int           `json:"max_retries"`
-	InitialRetryInterval  time.Duration `json:"initial_retry_interval"`
-	MaxRetryInterval      time.Duration `json:"max_retry_interval"`
-	RetryMultiplier       float64       `json:"retry_multiplier"`
-	MaxResultRows         int           `json:"max_result_rows"`
+	Name                  string         `json:"name"`
+	ConnectionString      string         `json:"connection_string"`
+	MinConnections        int            `json:"min_connections"`
+	MaxOpenConnections    int            `json:"max_open_connections"`
+	MaxIdleConnections    int            `json:"max_idle_connections"`
+	ConnectionTimeout     time.Duration  `json:"connection_timeout"`
+	MaxConnectionLifetime time.Duration  `json:"max_connection_lifetime"`
+	IdleTimeout           time.Duration  `json:"idle_timeout"`
+	HealthCheckInterval   time.Duration  `json:"health_check_interval"`
+	HealthCheckTimeout    time.Duration  `json:"health_check_timeout"`
+	MinConnCheckInterval  time.Duration  `json:"min_conn_check_interval"`
+	EvictionPolicy        EvictionPolicy `json:"eviction_policy"`
+	EvictionBatchSize     int            `json:"eviction_batch_size"`
+	EvictionGracePeriod   time.Duration  `json:"eviction_grace_period"`
+	MinEvictableIdleTime  time.Duration  `json:"min_evictable_idle_time"`
+	SSLMode               string         `json:"ssl_mode"`
+	SSLCert               string         `json:"ssl_cert"`
+	SSLKey                string         `json:"ssl_key"`
+	SSLRootCert           string         `json:"ssl_root_cert"`
+	SSLKeyPassword        string         `json:"ssl_key_password"`
+	SSLCipherSuites       string         `json:"ssl_cipher_suites"`
+	SSLSecure             bool           `json:"ssl_secure"`
+	SSLVersion            string         `json:"ssl_version"`
+	MaxRetries            int            `json:"max_retries"`
+	InitialRetryInterval  time.Duration  `json:"initial_retry_interval"`
+	MaxRetryInterval      time.Duration  `json:"max_retry_interval"`
+	RetryMultiplier       float64        `json:"retry_multiplier"`
+	MaxResultRows         int            `json:"max_result_rows"`
 }
 
 type ConnectionState int
@@ -170,21 +181,55 @@ func (c *DBConnection) cleanupIdleConnections() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	if c.Database == nil || c.Config.IdleTimeout <= 0 {
+	if c.Database == nil {
 		return
 	}
 
-	if time.Since(c.lastUsed) > c.Config.IdleTimeout {
-		c.Database.Close()
+	if c.Config.IdleTimeout <= 0 && c.Config.MinEvictableIdleTime <= 0 {
+		return
+	}
+
+	stats := c.Database.Stats()
+	if stats.Idle <= 0 {
+		return
+	}
+
+	batchSize := c.Config.EvictionBatchSize
+	if batchSize <= 0 {
+		batchSize = stats.Idle
+	}
+	if batchSize > stats.Idle {
+		batchSize = stats.Idle
+	}
+
+	idleTimeout := c.Config.IdleTimeout
+	minEvictable := c.Config.MinEvictableIdleTime
+	if minEvictable <= 0 {
+		minEvictable = idleTimeout
+	}
+
+	evicted := 0
+	for i := 0; i < batchSize && stats.Idle-evicted > 0; i++ {
+		idleDuration := time.Since(c.lastUsed)
+		gracePeriod := c.Config.EvictionGracePeriod
+
+		if idleDuration > minEvictable && idleDuration-gracePeriod > minEvictable {
+			c.Database.Close()
+			evicted++
+			metrics.PoolIdleClosedTotal.WithLabelValues(c.Config.Name).Inc()
+			logging.LogConnectionEvent(nil, "idle_connection_closed", c.Config.Name, map[string]interface{}{
+				"eviction_policy": c.Config.EvictionPolicy,
+				"idle_duration":   idleDuration,
+				"batch_position":  i,
+			})
+		}
+	}
+
+	if evicted > 0 {
 		c.state = StateClosed
-		metrics.PoolIdleClosedTotal.WithLabelValues(c.Config.Name).Inc()
-		stats := c.Database.Stats()
-		metrics.PoolOpenConnections.WithLabelValues(c.Config.Name).Set(float64(stats.OpenConnections))
-		metrics.PoolIdleConnections.WithLabelValues(c.Config.Name).Set(float64(stats.Idle))
-		logging.LogConnectionEvent(nil, "idle_connection_closed", c.Config.Name, map[string]interface{}{
-			"idle_timeout": c.Config.IdleTimeout,
-			"last_used":    c.lastUsed,
-		})
+		updatedStats := c.Database.Stats()
+		metrics.PoolOpenConnections.WithLabelValues(c.Config.Name).Set(float64(updatedStats.OpenConnections))
+		metrics.PoolIdleConnections.WithLabelValues(c.Config.Name).Set(float64(updatedStats.Idle))
 	}
 }
 
@@ -347,6 +392,15 @@ func (r *DBRegistry) AddConnection(name string, config *DBConfig) (*DBConnection
 	if config.RetryMultiplier == 0 {
 		config.RetryMultiplier = 2.0
 	}
+	if config.EvictionPolicy == "" {
+		config.EvictionPolicy = EvictionPolicyLIFO
+	}
+	if config.EvictionBatchSize <= 0 {
+		config.EvictionBatchSize = 1
+	}
+	if config.EvictionGracePeriod <= 0 {
+		config.EvictionGracePeriod = 30 * time.Second
+	}
 
 	db, err := sql.Open("odbc", config.ConnectionString)
 	if err != nil {
@@ -404,6 +458,10 @@ func (r *DBRegistry) AddConnection(name string, config *DBConfig) (*DBConnection
 		"initial_retry_interval":  config.InitialRetryInterval,
 		"max_retry_interval":      config.MaxRetryInterval,
 		"retry_multiplier":        config.RetryMultiplier,
+		"eviction_policy":         config.EvictionPolicy,
+		"eviction_batch_size":     config.EvictionBatchSize,
+		"eviction_grace_period":   config.EvictionGracePeriod,
+		"min_evictable_idle_time": config.MinEvictableIdleTime,
 	})
 
 	if config.MinConnections > 0 {
@@ -563,6 +621,27 @@ func (r *DBRegistry) UpdateConnection(name string, config *DBConfig) (*DBConnect
 	if config.MinConnections > config.MaxIdleConnections {
 		config.MaxIdleConnections = config.MinConnections
 	}
+	if config.MaxRetries == 0 {
+		config.MaxRetries = 3
+	}
+	if config.InitialRetryInterval == 0 {
+		config.InitialRetryInterval = 100 * time.Millisecond
+	}
+	if config.MaxRetryInterval == 0 {
+		config.MaxRetryInterval = 5 * time.Second
+	}
+	if config.RetryMultiplier == 0 {
+		config.RetryMultiplier = 2.0
+	}
+	if config.EvictionPolicy == "" {
+		config.EvictionPolicy = EvictionPolicyLIFO
+	}
+	if config.EvictionBatchSize <= 0 {
+		config.EvictionBatchSize = 1
+	}
+	if config.EvictionGracePeriod <= 0 {
+		config.EvictionGracePeriod = 30 * time.Second
+	}
 
 	db, err := sql.Open("odbc", config.ConnectionString)
 	if err != nil {
@@ -596,6 +675,10 @@ func (r *DBRegistry) UpdateConnection(name string, config *DBConfig) (*DBConnect
 		"max_connection_lifetime": config.MaxConnectionLifetime,
 		"idle_timeout":            config.IdleTimeout,
 		"health_check_interval":   config.HealthCheckInterval,
+		"eviction_policy":         config.EvictionPolicy,
+		"eviction_batch_size":     config.EvictionBatchSize,
+		"eviction_grace_period":   config.EvictionGracePeriod,
+		"min_evictable_idle_time": config.MinEvictableIdleTime,
 	})
 
 	if config.MinConnections > 0 {

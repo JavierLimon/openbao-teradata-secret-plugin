@@ -33,6 +33,10 @@ type Config struct {
 	Database                 string            `json:"database"`
 	GracefulDegradationMode  bool              `json:"graceful_degradation_mode"`
 	MaxResultRows            int               `json:"max_result_rows"`
+	EvictionPolicy           string            `json:"eviction_policy"`
+	EvictionBatchSize        int               `json:"eviction_batch_size"`
+	EvictionGracePeriod      int               `json:"eviction_grace_period"`
+	MinEvictableIdleTime     int               `json:"min_evictable_idle_time"`
 }
 
 type Role struct {
