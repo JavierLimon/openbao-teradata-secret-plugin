@@ -12,11 +12,15 @@ import (
 
 func (b *Backend) pathConfig() *framework.Path {
 	return &framework.Path{
-		Pattern:         "config",
-		HelpSynopsis:    "Configure the Teradata connection",
-		HelpDescription: "Configures the connection parameters for the Teradata database.",
+		Pattern:         "config/(?P<region>[a-zA-Z0-9_-]+)",
+		HelpSynopsis:    "Configure the Teradata connection for a specific region",
+		HelpDescription: "Configures the connection parameters for a specific Teradata database region.",
 
 		Fields: map[string]*framework.FieldSchema{
+			"region": {
+				Type:        framework.TypeString,
+				Description: "Region identifier",
+			},
 			"connection_string": {
 				Type:        framework.TypeString,
 				Description: "ODBC connection string for Teradata",
@@ -57,6 +61,10 @@ func (b *Backend) pathConfig() *framework.Path {
 }
 
 func (b *Backend) pathConfigWrite(ctx context.Context, req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
+	var region string
+	if r, ok := data.Raw["region"].(string); ok {
+		region = r
+	}
 	connectionString := data.Get("connection_string").(string)
 
 	if err := security.ValidateConnectionString(connectionString); err != nil {
@@ -68,13 +76,19 @@ func (b *Backend) pathConfigWrite(ctx context.Context, req *logical.Request, dat
 	connectionTimeout := data.Get("connection_timeout").(int)
 
 	cfg := &models.Config{
+		Region:             region,
 		ConnectionString:   connectionString,
 		MaxOpenConnections: maxOpenConnections,
 		MaxIdleConnections: maxIdleConnections,
 		ConnectionTimeout:  connectionTimeout,
 	}
 
-	entry, err := logical.StorageEntryJSON("config", cfg)
+	storageKey := "config"
+	if region != "" {
+		storageKey = "config/" + region
+	}
+
+	entry, err := logical.StorageEntryJSON(storageKey, cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -83,18 +97,33 @@ func (b *Backend) pathConfigWrite(ctx context.Context, req *logical.Request, dat
 		return nil, err
 	}
 
+	respData := map[string]interface{}{
+		"connection_string":    "***",
+		"max_open_connections": maxOpenConnections,
+		"max_idle_connections": maxIdleConnections,
+		"connection_timeout":   connectionTimeout,
+	}
+	if region != "" {
+		respData["region"] = region
+	}
+
 	return &logical.Response{
-		Data: map[string]interface{}{
-			"connection_string":    "***",
-			"max_open_connections": maxOpenConnections,
-			"max_idle_connections": maxIdleConnections,
-			"connection_timeout":   connectionTimeout,
-		},
+		Data: respData,
 	}, nil
 }
 
 func (b *Backend) pathConfigRead(ctx context.Context, req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
-	entry, err := req.Storage.Get(ctx, "config")
+	var region string
+	if r, ok := data.Raw["region"].(string); ok {
+		region = r
+	}
+
+	storageKey := "config"
+	if region != "" {
+		storageKey = "config/" + region
+	}
+
+	entry, err := req.Storage.Get(ctx, storageKey)
 	if err != nil {
 		return nil, err
 	}
@@ -108,18 +137,33 @@ func (b *Backend) pathConfigRead(ctx context.Context, req *logical.Request, data
 		return nil, err
 	}
 
+	respData := map[string]interface{}{
+		"connection_string":    "***",
+		"max_open_connections": cfg.MaxOpenConnections,
+		"max_idle_connections": cfg.MaxIdleConnections,
+		"connection_timeout":   cfg.ConnectionTimeout,
+	}
+	if cfg.Region != "" {
+		respData["region"] = cfg.Region
+	}
+
 	return &logical.Response{
-		Data: map[string]interface{}{
-			"connection_string":    "***",
-			"max_open_connections": cfg.MaxOpenConnections,
-			"max_idle_connections": cfg.MaxIdleConnections,
-			"connection_timeout":   cfg.ConnectionTimeout,
-		},
+		Data: respData,
 	}, nil
 }
 
 func (b *Backend) pathConfigDelete(ctx context.Context, req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
-	err := req.Storage.Delete(ctx, "config")
+	var region string
+	if r, ok := data.Raw["region"].(string); ok {
+		region = r
+	}
+
+	storageKey := "config"
+	if region != "" {
+		storageKey = "config/" + region
+	}
+
+	err := req.Storage.Delete(ctx, storageKey)
 	if err != nil {
 		return nil, fmt.Errorf("error deleting config: %w", err)
 	}
@@ -129,6 +173,27 @@ func (b *Backend) pathConfigDelete(ctx context.Context, req *logical.Request, da
 
 func getConfig(ctx context.Context, storage logical.Storage) (*models.Config, error) {
 	entry, err := storage.Get(ctx, "config")
+	if err != nil {
+		return nil, err
+	}
+
+	if entry == nil {
+		return nil, nil
+	}
+
+	var cfg models.Config
+	if err := entry.DecodeJSON(&cfg); err != nil {
+		return nil, err
+	}
+
+	return &cfg, nil
+}
+
+func getConfigByRegion(ctx context.Context, storage logical.Storage, region string) (*models.Config, error) {
+	if region == "" {
+		return getConfig(ctx, storage)
+	}
+	entry, err := storage.Get(ctx, "config/"+region)
 	if err != nil {
 		return nil, err
 	}

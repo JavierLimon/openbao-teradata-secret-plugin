@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"github.com/JavierLimon/openbao-teradata-secret-plugin/audit"
+	"github.com/JavierLimon/openbao-teradata-secret-plugin/models"
 	teradb "github.com/JavierLimon/openbao-teradata-secret-plugin/odbc"
 	"github.com/JavierLimon/openbao-teradata-secret-plugin/storage"
 	"github.com/openbao/openbao/sdk/v2/framework"
@@ -101,12 +102,28 @@ func (b *Backend) Revoke(ctx context.Context, leaseID string) error {
 	roleName := parts[2]
 	username := parts[3]
 
-	cfg, err := getConfig(ctx, b.storage)
+	cred, err := getCredential(ctx, b.storage, username)
 	if err != nil {
-		return fmt.Errorf("failed to get config for revocation: %w", err)
+		return fmt.Errorf("failed to get credential for revocation: %w", err)
 	}
-	if cfg == nil {
-		return fmt.Errorf("database configuration not found")
+
+	var cfg *models.Config
+	if cred != nil && cred.Region != "" {
+		cfg, err = getConfigByRegion(ctx, b.storage, cred.Region)
+		if err != nil {
+			return fmt.Errorf("failed to get region config for revocation: %w", err)
+		}
+		if cfg == nil {
+			return fmt.Errorf("configuration for region %q not found", cred.Region)
+		}
+	} else {
+		cfg, err = getConfig(ctx, b.storage)
+		if err != nil {
+			return fmt.Errorf("failed to get config for revocation: %w", err)
+		}
+		if cfg == nil {
+			return fmt.Errorf("database configuration not found")
+		}
 	}
 
 	role, err := getRole(ctx, b.storage, roleName)
