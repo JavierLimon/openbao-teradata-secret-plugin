@@ -83,7 +83,7 @@ func (b *Backend) pathRenewCredsHandler(ctx context.Context, req *logical.Reques
 	defer conn.Close()
 
 	err = retry.Do(ctx, nil, func() error {
-		return odbc.AlterUserPassword(conn.DB(), username, newPassword)
+		return odbc.AlterUserPassword(ctx, conn.DB(), username, newPassword)
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to rotate password: %w", err)
@@ -106,7 +106,7 @@ func (b *Backend) pathRenewCredsHandler(ctx context.Context, req *logical.Reques
 		renewalSQL = strings.ReplaceAll(renewalSQL, "{{password}}", newPassword)
 
 		err = retry.Do(ctx, nil, func() error {
-			return conn.ExecuteMultipleStatements(renewalSQL)
+			return conn.ExecuteMultipleStatements(ctx, renewalSQL)
 		})
 		if err != nil {
 			return nil, fmt.Errorf("failed to execute renewal statement: %w", err)

@@ -74,7 +74,7 @@ func (b *Backend) pathRevokeCredsHandler(ctx context.Context, req *logical.Reque
 		revocationSQL := role.RevocationStatement
 		revocationSQL = replaceVariables(revocationSQL, username, "")
 		err = retry.Do(ctx, nil, func() error {
-			return conn.ExecuteMultipleStatements(revocationSQL)
+			return conn.ExecuteMultipleStatements(ctx, revocationSQL)
 		})
 		if err != nil {
 			return nil, fmt.Errorf("failed to execute revocation statement: %w", err)
@@ -82,7 +82,7 @@ func (b *Backend) pathRevokeCredsHandler(ctx context.Context, req *logical.Reque
 	}
 
 	err = retry.Do(ctx, nil, func() error {
-		return odbc.DropUser(conn.DB(), username)
+		return odbc.DropUser(ctx, conn.DB(), username)
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to drop user: %w", err)

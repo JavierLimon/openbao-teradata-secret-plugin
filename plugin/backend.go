@@ -224,7 +224,7 @@ func (b *Backend) Revoke(ctx context.Context, leaseID string) error {
 		})
 		if err == nil {
 			retry.Do(ctx, nil, func() error {
-				return conn.ExecuteMultipleStatements(revokeSQL)
+				return conn.ExecuteMultipleStatements(ctx, revokeSQL)
 			})
 			conn.Close()
 		}
@@ -245,7 +245,7 @@ func (b *Backend) Revoke(ctx context.Context, leaseID string) error {
 	defer conn.Close()
 
 	err = retry.Do(ctx, nil, func() error {
-		return conn.ExecuteMultipleStatements(dropSQL)
+		return conn.ExecuteMultipleStatements(ctx, dropSQL)
 	})
 	if err != nil {
 		_ = audit.LogCredentialRevocation(ctx, b.storage, username, roleName, map[string]interface{}{"error": err.Error()})

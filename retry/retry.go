@@ -232,7 +232,7 @@ func ExecuteWithRetry(ctx context.Context, connString, sql string) (interface{},
 		}
 		defer conn.Close()
 
-		err = conn.ExecuteMultipleStatements(sql)
+		err = conn.ExecuteMultipleStatements(ctx, sql)
 		return err
 	})
 

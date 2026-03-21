@@ -164,7 +164,7 @@ func (b *Backend) pathRenewCredsBatchHandler(ctx context.Context, req *logical.R
 		}
 
 		err = retry.Do(ctx, nil, func() error {
-			return odbc.AlterUserPassword(conn.DB(), username, newPassword)
+			return odbc.AlterUserPassword(ctx, conn.DB(), username, newPassword)
 		})
 		if err != nil {
 			result.Error = fmt.Sprintf("failed to rotate password: %v", err)
@@ -179,7 +179,7 @@ func (b *Backend) pathRenewCredsBatchHandler(ctx context.Context, req *logical.R
 			renewalSQL = strings.ReplaceAll(renewalSQL, "{{password}}", newPassword)
 
 			err = retry.Do(ctx, nil, func() error {
-				return conn.ExecuteMultipleStatements(renewalSQL)
+				return conn.ExecuteMultipleStatements(ctx, renewalSQL)
 			})
 			if err != nil {
 				result.Error = fmt.Sprintf("failed to execute renewal statement: %v", err)

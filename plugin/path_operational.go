@@ -295,7 +295,7 @@ func (b *Backend) pathInfoRead(ctx context.Context, req *logical.Request, data *
 	}
 	defer conn.Close()
 
-	dbInfo, err := conn.GetDatabaseInfo()
+	dbInfo, err := conn.GetDatabaseInfo(ctx)
 	if err != nil {
 		return &logical.Response{
 			Data: map[string]interface{}{
