@@ -577,7 +577,7 @@ func executeSQL(ctx context.Context, cfg *models.Config, sql string) (interface{
 		}
 		defer conn.Close()
 
-		execErr := conn.ExecuteMultipleStatements(sql)
+		execErr := conn.ExecuteMultipleStatements(ctx, sql)
 		if execErr != nil {
 			return execErr
 		}
@@ -658,7 +658,7 @@ func executeGrantStatements(ctx context.Context, connString, grantStatements str
 		}
 		defer conn.Close()
 
-		return conn.ExecuteGrantStatements(grantStatements)
+		return conn.ExecuteGrantStatements(ctx, grantStatements)
 	})
 
 	if err != nil {

@@ -329,28 +329,28 @@ func (c *Connection) IsHealthy() bool {
 	return c.connected && c.db != nil
 }
 
-func (c *Connection) Execute(query string, args ...interface{}) (sql.Result, error) {
+func (c *Connection) Execute(ctx context.Context, query string, args ...interface{}) (sql.Result, error) {
 	if !c.connected || c.db == nil {
 		return nil, ErrNotConnected
 	}
-	return c.db.Exec(query, args...)
+	return c.db.ExecContext(ctx, query, args...)
 }
 
-func (c *Connection) Query(query string, args ...interface{}) (*sql.Rows, error) {
+func (c *Connection) Query(ctx context.Context, query string, args ...interface{}) (*sql.Rows, error) {
 	if !c.connected || c.db == nil {
 		return nil, ErrNotConnected
 	}
-	return c.db.Query(query, args...)
+	return c.db.QueryContext(ctx, query, args...)
 }
 
-func (c *Connection) QueryRow(query string, args ...interface{}) *sql.Row {
+func (c *Connection) QueryRow(ctx context.Context, query string, args ...interface{}) *sql.Row {
 	if !c.connected || c.db == nil {
 		return nil
 	}
-	return c.db.QueryRow(query, args...)
+	return c.db.QueryRowContext(ctx, query, args...)
 }
 
-func CreateUser(db *sql.DB, username, password, defaultDB string, permSpace int64) error {
+func CreateUser(ctx context.Context, db *sql.DB, username, password, defaultDB string, permSpace int64) error {
 	query := fmt.Sprintf(
 		"CREATE USER %s FROM DBC AS PASSWORD = %s DEFAULT DATABASE = %s PERM = %d",
 		username,
@@ -358,26 +358,26 @@ func CreateUser(db *sql.DB, username, password, defaultDB string, permSpace int6
 		defaultDB,
 		permSpace,
 	)
-	_, err := db.Exec(query)
+	_, err := db.ExecContext(ctx, query)
 	if err != nil {
 		return fmt.Errorf("failed to create user %s: %w", username, err)
 	}
 	return nil
 }
 
-func DropUser(db *sql.DB, username string) error {
+func DropUser(ctx context.Context, db *sql.DB, username string) error {
 	query := fmt.Sprintf("DROP USER %s", username)
-	_, err := db.Exec(query)
+	_, err := db.ExecContext(ctx, query)
 	if err != nil {
 		return fmt.Errorf("failed to drop user %s: %w", username, err)
 	}
 	return nil
 }
 
-func GrantPrivileges(db *sql.DB, username, database string, privileges []string) error {
+func GrantPrivileges(ctx context.Context, db *sql.DB, username, database string, privileges []string) error {
 	for _, priv := range privileges {
 		query := fmt.Sprintf("GRANT %s ON %s TO %s", priv, database, username)
-		_, err := db.Exec(query)
+		_, err := db.ExecContext(ctx, query)
 		if err != nil {
 			return fmt.Errorf("failed to grant %s on %s to %s: %w", priv, database, username, err)
 		}
@@ -385,10 +385,10 @@ func GrantPrivileges(db *sql.DB, username, database string, privileges []string)
 	return nil
 }
 
-func RevokePrivileges(db *sql.DB, username, database string, privileges []string) error {
+func RevokePrivileges(ctx context.Context, db *sql.DB, username, database string, privileges []string) error {
 	for _, priv := range privileges {
 		query := fmt.Sprintf("REVOKE %s ON %s FROM %s", priv, database, username)
-		_, err := db.Exec(query)
+		_, err := db.ExecContext(ctx, query)
 		if err != nil {
 			return fmt.Errorf("failed to revoke %s on %s from %s: %w", priv, database, username, err)
 		}
@@ -396,9 +396,9 @@ func RevokePrivileges(db *sql.DB, username, database string, privileges []string
 	return nil
 }
 
-func AlterUserPassword(db *sql.DB, username, newPassword string) error {
+func AlterUserPassword(ctx context.Context, db *sql.DB, username, newPassword string) error {
 	query := fmt.Sprintf("MODIFY USER %s AS PASSWORD = %s", username, newPassword)
-	_, err := db.Exec(query)
+	_, err := db.ExecContext(ctx, query)
 	if err != nil {
 		return fmt.Errorf("failed to alter user password for %s: %w", username, err)
 	}
@@ -438,7 +438,7 @@ func ValidateUsername(username string) error {
 
 // ExecuteGrantStatements executes multiple GRANT statements
 // Statements are separated by semicolons. Empty statements are skipped.
-func (c *Connection) ExecuteGrantStatements(grantStatements string) error {
+func (c *Connection) ExecuteGrantStatements(ctx context.Context, grantStatements string) error {
 	if !c.connected {
 		return errors.New("not connected")
 	}
@@ -460,7 +460,7 @@ func (c *Connection) ExecuteGrantStatements(grantStatements string) error {
 			continue
 		}
 
-		_, err := c.db.Exec(stmt)
+		_, err := c.db.ExecContext(ctx, stmt)
 		if err != nil {
 			return err
 		}
@@ -516,7 +516,7 @@ func normalizeGrantStatement(stmt string) string {
 
 // ExecuteMultipleStatements executes multiple SQL statements separated by semicolons
 // Returns error if any statement fails
-func (c *Connection) ExecuteMultipleStatements(sqlStatements string) error {
+func (c *Connection) ExecuteMultipleStatements(ctx context.Context, sqlStatements string) error {
 	if !c.connected {
 		return errors.New("not connected")
 	}
@@ -539,7 +539,7 @@ func (c *Connection) ExecuteMultipleStatements(sqlStatements string) error {
 			continue
 		}
 
-		_, err := c.db.Exec(stmt)
+		_, err := c.db.ExecContext(ctx, stmt)
 		if err != nil {
 			return err
 		}
@@ -555,7 +555,7 @@ type DatabaseInfo struct {
 	DBName        string `json:"db_name"`
 }
 
-func (c *Connection) GetDatabaseInfo() (*DatabaseInfo, error) {
+func (c *Connection) GetDatabaseInfo(ctx context.Context) (*DatabaseInfo, error) {
 	if !c.connected || c.db == nil {
 		return nil, ErrNotConnected
 	}
@@ -565,18 +565,18 @@ func (c *Connection) GetDatabaseInfo() (*DatabaseInfo, error) {
 	}
 
 	var dbVersion, dbName string
-	queryRowErr := c.db.QueryRow("SELECT InfoData FROM DBC.Info WHERE InfoKey = 'Version'").Scan(&dbVersion)
+	queryRowErr := c.db.QueryRowContext(ctx, "SELECT InfoData FROM DBC.Info WHERE InfoKey = 'Version'").Scan(&dbVersion)
 	if queryRowErr != nil {
-		alternateErr := c.db.QueryRow("SELECT TRIM(SoftwareRelease) FROM DBC.DatabasesV WHERE DatabaseName = 'DBC'").Scan(&dbVersion)
+		alternateErr := c.db.QueryRowContext(ctx, "SELECT TRIM(SoftwareRelease) FROM DBC.DatabasesV WHERE DatabaseName = 'DBC'").Scan(&dbVersion)
 		if alternateErr != nil {
-			c.db.QueryRow("SELECT TOP 1 'Teradata' || ' ' || TRIM(Release) FROM DBC.SessionInfo").Scan(&dbVersion)
+			c.db.QueryRowContext(ctx, "SELECT TOP 1 'Teradata' || ' ' || TRIM(Release) FROM DBC.SessionInfo").Scan(&dbVersion)
 		}
 	}
 	info.DBVersion = dbVersion
 
-	queryRowErr = c.db.QueryRow("SELECT InfoData FROM DBC.Info WHERE InfoKey = 'DatabaseName'").Scan(&dbName)
+	queryRowErr = c.db.QueryRowContext(ctx, "SELECT InfoData FROM DBC.Info WHERE InfoKey = 'DatabaseName'").Scan(&dbName)
 	if queryRowErr != nil {
-		c.db.QueryRow("SELECT TOP 1 TRIM(DatabaseName) FROM DBC.DatabasesV").Scan(&dbName)
+		c.db.QueryRowContext(ctx, "SELECT TOP 1 TRIM(DatabaseName) FROM DBC.DatabasesV").Scan(&dbName)
 	}
 	info.DBName = dbName
 
