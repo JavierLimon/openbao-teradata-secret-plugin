@@ -82,6 +82,16 @@ func (b *Backend) pathRoles() *framework.Path {
 				Description: "Additional SQL to run before DROP USER",
 				Default:     "",
 			},
+			"rollback_statement": {
+				Type:        framework.TypeString,
+				Description: "SQL to run if creation statement fails",
+				Default:     "",
+			},
+			"renewal_statement": {
+				Type:        framework.TypeString,
+				Description: "SQL to run after password renewal",
+				Default:     "",
+			},
 		},
 
 		Operations: map[logical.Operation]framework.OperationHandler{
