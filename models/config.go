@@ -31,6 +31,7 @@ type Config struct {
 	Port                     int               `json:"port"`
 	Database                 string            `json:"database"`
 	GracefulDegradationMode  bool              `json:"graceful_degradation_mode"`
+	MaxResultRows            int               `json:"max_result_rows"`
 }
 
 type Role struct {

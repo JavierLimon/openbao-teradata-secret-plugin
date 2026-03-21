@@ -455,6 +455,10 @@ func getConfigFieldSchema() map[string]*framework.FieldSchema {
 			Type:    framework.TypeBool,
 			Default: false,
 		},
+		"max_result_rows": {
+			Type:    framework.TypeInt,
+			Default: 0,
+		},
 	}
 }
 

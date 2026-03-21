@@ -14,11 +14,12 @@ import (
 )
 
 var (
-	ErrNotConnected    = errors.New("not connected")
-	ErrEmptyUsername   = errors.New("username cannot be empty")
-	ErrInvalidUsername = errors.New("username contains invalid characters")
-	ErrUsernameTooLong = errors.New("username cannot exceed 30 characters")
-	ErrSQLInjection    = errors.New("potential SQL injection attempt detected")
+	ErrNotConnected        = errors.New("not connected")
+	ErrEmptyUsername       = errors.New("username cannot be empty")
+	ErrInvalidUsername     = errors.New("username contains invalid characters")
+	ErrUsernameTooLong     = errors.New("username cannot exceed 30 characters")
+	ErrSQLInjection        = errors.New("potential SQL injection attempt detected")
+	ErrResultLimitExceeded = errors.New("query result limit exceeded")
 )
 
 const (
@@ -65,6 +66,7 @@ type Connection struct {
 	keepAliveCancel context.CancelFunc
 	keepAliveDone   chan struct{}
 	keepAliveInt    time.Duration
+	maxResultRows   int
 }
 
 type SSLConfig struct {
@@ -88,6 +90,7 @@ type TeradataConnectionConfig struct {
 	Password          string
 	ConnectionTimeout int
 	QueryTimeout      int
+	MaxResultRows     int
 	SessionMode       string
 	Account           string
 	SSLMode           string
@@ -422,6 +425,12 @@ func (c *Connection) IsHealthy() bool {
 	return c.connected && c.db != nil
 }
 
+func (c *Connection) SetMaxResultRows(limit int) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.maxResultRows = limit
+}
+
 func (c *Connection) Execute(ctx context.Context, query string, args ...interface{}) (sql.Result, error) {
 	if !c.connected || c.db == nil {
 		return nil, ErrNotConnected
@@ -433,6 +442,9 @@ func (c *Connection) Query(ctx context.Context, query string, args ...interface{
 	if !c.connected || c.db == nil {
 		return nil, ErrNotConnected
 	}
+	if c.maxResultRows > 0 {
+		query = applyResultLimit(query, c.maxResultRows)
+	}
 	return c.db.QueryContext(ctx, query, args...)
 }
 
@@ -440,7 +452,29 @@ func (c *Connection) QueryRow(ctx context.Context, query string, args ...interfa
 	if !c.connected || c.db == nil {
 		return nil
 	}
+	if c.maxResultRows > 0 {
+		query = applyResultLimit(query, c.maxResultRows)
+	}
 	return c.db.QueryRowContext(ctx, query, args...)
+}
+
+func applyResultLimit(query string, limit int) string {
+	upperQuery := strings.ToUpper(strings.TrimSpace(query))
+	if !strings.HasPrefix(upperQuery, "SELECT") {
+		return query
+	}
+	if strings.Contains(upperQuery, " TOP ") || strings.Contains(upperQuery, " SAMPLE ") {
+		return query
+	}
+	sampleClause := fmt.Sprintf(" TOP %d ", limit)
+	selIdx := strings.Index(upperQuery, "SELECT")
+	if selIdx == -1 {
+		return query
+	}
+	selectStart := selIdx + len("SELECT")
+	beforeSelect := query[:selectStart]
+	afterSelect := query[selectStart:]
+	return beforeSelect + sampleClause + afterSelect
 }
 
 func CreateUser(ctx context.Context, db *sql.DB, username, password, defaultDB string, permSpace int64) error {
