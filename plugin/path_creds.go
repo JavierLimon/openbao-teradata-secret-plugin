@@ -158,7 +158,7 @@ func (b *Backend) pathCredsRead(ctx context.Context, req *logical.Request, data 
 		}
 	}
 
-	if b.IsDegraded() || !b.IsPoolHealthy(region) {
+	if b.ShouldUseDegradation() || !b.IsPoolHealthy(region) {
 		canOperate, reason := b.CanOperate(region)
 		if !canOperate {
 			degradedSince := b.DegradedSince()
@@ -339,7 +339,7 @@ func (b *Backend) pathCredsBatchRead(ctx context.Context, req *logical.Request, 
 		}
 	}
 
-	if b.IsDegraded() || !b.IsPoolHealthy(region) {
+	if b.ShouldUseDegradation() || !b.IsPoolHealthy(region) {
 		canOperate, reason := b.CanOperate(region)
 		if !canOperate {
 			degradedSince := b.DegradedSince()

@@ -25,14 +25,15 @@ const (
 type Backend struct {
 	*framework.Backend
 
-	storage             logical.Storage
-	mu                  sync.RWMutex
-	dbRegistry          *storage.DBRegistry
-	credCache           *credentialCache
-	queryCache          *queryResultCache
-	rateLimiter         *RateLimiterMiddleware
-	degradedSince       time.Time
-	gracefulDegradation bool
+	storage                    logical.Storage
+	mu                         sync.RWMutex
+	dbRegistry                 *storage.DBRegistry
+	credCache                  *credentialCache
+	queryCache                 *queryResultCache
+	rateLimiter                *RateLimiterMiddleware
+	degradedSince              time.Time
+	gracefulDegradation        bool
+	manuallyEnabledDegradation bool
 }
 
 var DefaultRateLimitConfig = RateLimitConfig{
@@ -225,6 +226,7 @@ func (b *Backend) paths() []*framework.Path {
 		b.pathHealth(),
 		b.pathReadiness(),
 		b.pathLiveness(),
+		b.pathDegradation(),
 		b.pathVersion(),
 		b.pathAPIVersion(),
 		b.pathInfo(),
@@ -270,8 +272,34 @@ func (b *Backend) SetGracefulDegradation(enabled bool) {
 	defer b.mu.Unlock()
 	if enabled && !b.gracefulDegradation {
 		b.degradedSince = time.Now()
+	} else if !enabled {
+		b.degradedSince = time.Time{}
 	}
 	b.gracefulDegradation = enabled
+}
+
+func (b *Backend) IsGracefulDegradationManuallyEnabled() bool {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return b.manuallyEnabledDegradation
+}
+
+func (b *Backend) SetManuallyEnabledDegradation(enabled bool) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.manuallyEnabledDegradation = enabled
+	if enabled {
+		b.gracefulDegradation = true
+		if b.degradedSince.IsZero() {
+			b.degradedSince = time.Now()
+		}
+	}
+}
+
+func (b *Backend) ShouldUseDegradation() bool {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return b.gracefulDegradation || b.manuallyEnabledDegradation
 }
 
 func (b *Backend) IsPoolHealthy(region string) bool {

@@ -121,14 +121,15 @@ func (b *Backend) pathHealthRead(ctx context.Context, req *logical.Request, data
 	)
 
 	respData := map[string]interface{}{
-		"status":               status,
-		"initialized":          true,
-		"pool_count":           len(connectionNames),
-		"pool_status":          poolStatus,
-		"checked_at":           time.Now(),
-		"graceful_degradation": b.IsDegraded(),
-		"degraded_pools":       degradedPools,
-		"healthy_pools":        healthyPools,
+		"status":                       status,
+		"initialized":                  true,
+		"pool_count":                   len(connectionNames),
+		"pool_status":                  poolStatus,
+		"checked_at":                   time.Now(),
+		"graceful_degradation":         b.IsDegraded(),
+		"manually_enabled_degradation": b.IsGracefulDegradationManuallyEnabled(),
+		"degraded_pools":               degradedPools,
+		"healthy_pools":                healthyPools,
 	}
 
 	if b.IsDegraded() && !b.DegradedSince().IsZero() {
@@ -287,6 +288,103 @@ func (b *Backend) pathLivenessRead(ctx context.Context, req *logical.Request, da
 			"version": Version,
 		},
 	}, nil
+}
+
+func (b *Backend) pathDegradation() *framework.Path {
+	return &framework.Path{
+		Pattern:         "degradation",
+		HelpSynopsis:    "Graceful degradation control",
+		HelpDescription: "Manually control graceful degradation mode. When enabled, the plugin will continue operating in a limited mode when the database is unavailable.",
+
+		Fields: map[string]*framework.FieldSchema{
+			"enabled": {
+				Type:        framework.TypeBool,
+				Description: "Enable or disable graceful degradation mode",
+			},
+		},
+
+		Operations: map[logical.Operation]framework.OperationHandler{
+			logical.ReadOperation: &framework.PathOperation{
+				Callback: b.pathDegradationRead,
+			},
+			logical.UpdateOperation: &framework.PathOperation{
+				Callback: b.pathDegradationUpdate,
+			},
+			logical.CreateOperation: &framework.PathOperation{
+				Callback: b.pathDegradationUpdate,
+			},
+		},
+	}
+}
+
+func (b *Backend) pathDegradationRead(ctx context.Context, req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
+	cfg, err := getConfig(ctx, req.Storage)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get config: %w", err)
+	}
+
+	isDegraded := b.IsDegraded()
+	manuallyEnabled := b.IsGracefulDegradationManuallyEnabled()
+	autoDegraded := isDegraded && !manuallyEnabled
+
+	degradedPools := []string{}
+	healthyPools := []string{}
+
+	registry := b.getDBRegistry()
+	if registry != nil {
+		connectionNames := registry.ListConnections()
+		for _, name := range connectionNames {
+			if b.IsPoolHealthy(name) {
+				healthyPools = append(healthyPools, name)
+			} else {
+				degradedPools = append(degradedPools, name)
+			}
+		}
+	}
+
+	respData := map[string]interface{}{
+		"degraded":                    isDegraded,
+		"manually_enabled":            manuallyEnabled,
+		"automatically_triggered":     autoDegraded,
+		"config_graceful_degradation": false,
+		"degraded_pools":              degradedPools,
+		"healthy_pools":               healthyPools,
+	}
+
+	if cfg != nil {
+		respData["config_graceful_degradation"] = cfg.GracefulDegradationMode
+	}
+
+	if isDegraded && !b.DegradedSince().IsZero() {
+		respData["degraded_since"] = b.DegradedSince()
+		respData["degradation_duration_seconds"] = time.Since(b.DegradedSince()).Seconds()
+	}
+
+	return &logical.Response{
+		Data: respData,
+	}, nil
+}
+
+func (b *Backend) pathDegradationUpdate(ctx context.Context, req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
+	enabled, ok := data.Get("enabled").(bool)
+	if !ok {
+		return nil, fmt.Errorf("invalid enabled value: must be a boolean")
+	}
+
+	if enabled {
+		b.SetManuallyEnabledDegradation(true)
+		logging.Default().Warn("graceful_degradation_manually_enabled",
+			slog.Time("timestamp", time.Now()),
+		)
+	} else {
+		b.SetGracefulDegradation(false)
+		b.SetManuallyEnabledDegradation(false)
+		logging.Default().Info("graceful_degradation_manually_disabled",
+			slog.Time("timestamp", time.Now()),
+		)
+	}
+
+	return b.pathDegradationRead(ctx, req, data)
 }
 
 func (b *Backend) pathInfo() *framework.Path {
