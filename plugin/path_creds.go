@@ -54,7 +54,7 @@ func (b *Backend) pathCredsRead(ctx context.Context, req *logical.Request, data 
 		return nil, fmt.Errorf("database configuration not found")
 	}
 
-	username := role.DBUser
+	username := generateUsername(role.UsernamePrefix)
 	password := generatePassword()
 
 	createSQL := buildTeradataCreateUserSQL(role, username, password)
@@ -135,9 +135,23 @@ func buildTeradataCreateUserSQL(role *models.Role, username, password string) st
 }
 
 func generatePassword() string {
-	bytes := make([]byte, 16)
-	rand.Read(bytes)
+	bytes := make([]byte, 20)
+	if _, err := rand.Read(bytes); err != nil {
+		return ""
+	}
 	return hex.EncodeToString(bytes)
+}
+
+func generateUsername(prefix string) string {
+	bytes := make([]byte, 8)
+	if _, err := rand.Read(bytes); err != nil {
+		return ""
+	}
+	suffix := hex.EncodeToString(bytes)
+	if prefix == "" {
+		prefix = "vault"
+	}
+	return fmt.Sprintf("%s_%s", prefix, suffix)
 }
 
 func executeSQL(ctx context.Context, connString, sql string) (interface{}, error) {

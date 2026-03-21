@@ -12,6 +12,7 @@ type Config struct {
 type Role struct {
 	Name                string `json:"name"`
 	DBUser              string `json:"db_user"`
+	UsernamePrefix      string `json:"username_prefix"`
 	DBPassword          string `json:"db_password,omitempty"`
 	DefaultTTL          int    `json:"default_ttl"`
 	MaxTTL              int    `json:"max_ttl"`
