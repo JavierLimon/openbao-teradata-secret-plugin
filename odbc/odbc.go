@@ -6,6 +6,8 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"math"
+	"math/rand"
 	"strings"
 	"sync"
 	"time"
@@ -18,6 +20,29 @@ var (
 	ErrUsernameTooLong = errors.New("username cannot exceed 30 characters")
 	ErrSQLInjection    = errors.New("potential SQL injection attempt detected")
 )
+
+const (
+	DefaultMaxRetries       = 3
+	DefaultRetryInterval    = 100 * time.Millisecond
+	DefaultMaxRetryInterval = 5 * time.Second
+	DefaultRetryMultiplier  = 2.0
+)
+
+type ConnectConfig struct {
+	MaxRetries    int
+	RetryInterval time.Duration
+	MaxInterval   time.Duration
+	Multiplier    float64
+}
+
+func DefaultConnectConfig() *ConnectConfig {
+	return &ConnectConfig{
+		MaxRetries:    DefaultMaxRetries,
+		RetryInterval: DefaultRetryInterval,
+		MaxInterval:   DefaultMaxRetryInterval,
+		Multiplier:    DefaultRetryMultiplier,
+	}
+}
 
 var sqlKeywords = []string{
 	"SELECT", "INSERT", "UPDATE", "DELETE", "DROP", "CREATE", "ALTER", "TRUNCATE",
@@ -193,21 +218,89 @@ func AppendQueryTimeout(baseConnString string, queryTimeout int) string {
 }
 
 func Connect(connString string) (*Connection, error) {
-	db, err := sql.Open("odbc", connString)
-	if err != nil {
-		return nil, fmt.Errorf("failed to open ODBC connection: %w", err)
+	return ConnectWithRetry(connString, nil)
+}
+
+func ConnectWithRetry(connString string, cfg *ConnectConfig) (*Connection, error) {
+	if cfg == nil {
+		cfg = DefaultConnectConfig()
+	}
+	if cfg.MaxRetries <= 0 {
+		cfg.MaxRetries = DefaultMaxRetries
+	}
+	if cfg.RetryInterval <= 0 {
+		cfg.RetryInterval = DefaultRetryInterval
+	}
+	if cfg.MaxInterval <= 0 {
+		cfg.MaxInterval = DefaultMaxRetryInterval
+	}
+	if cfg.Multiplier <= 0 {
+		cfg.Multiplier = DefaultRetryMultiplier
 	}
 
-	if err := db.Ping(); err != nil {
-		db.Close()
-		return nil, fmt.Errorf("failed to ping ODBC connection: %w", err)
+	var lastErr error
+	for attempt := 1; attempt <= cfg.MaxRetries; attempt++ {
+		db, err := sql.Open("odbc", connString)
+		if err != nil {
+			lastErr = fmt.Errorf("failed to open ODBC connection: %w", err)
+			if !isRetryableError(lastErr) {
+				break
+			}
+			if attempt < cfg.MaxRetries {
+				time.Sleep(calculateBackoff(attempt, cfg))
+			}
+			continue
+		}
+
+		if err := db.Ping(); err != nil {
+			db.Close()
+			lastErr = fmt.Errorf("failed to ping ODBC connection: %w", err)
+			if !isRetryableError(lastErr) {
+				break
+			}
+			if attempt < cfg.MaxRetries {
+				time.Sleep(calculateBackoff(attempt, cfg))
+			}
+			continue
+		}
+
+		return &Connection{
+			connString: connString,
+			connected:  true,
+			db:         db,
+		}, nil
 	}
 
-	return &Connection{
-		connString: connString,
-		connected:  true,
-		db:         db,
-	}, nil
+	return nil, fmt.Errorf("connect with retry failed after %d attempts: %w", cfg.MaxRetries, lastErr)
+}
+
+func isRetryableError(err error) bool {
+	if err == nil {
+		return false
+	}
+	errStr := err.Error()
+	retryableIndicators := []string{
+		"ECONNREFUSED", "ECONNRESET", "ETIMEDOUT", "ENETUNREACH", "EHOSTUNREACH",
+		"connection refused", "connection reset", "timeout", "temporary failure",
+		"server declined", "unable to connect", "deadlock", "lock contention",
+		"resource unavailable", "table is busy",
+	}
+	for _, indicator := range retryableIndicators {
+		if strings.Contains(errStr, indicator) {
+			return true
+		}
+	}
+	return false
+}
+
+func calculateBackoff(attempt int, cfg *ConnectConfig) time.Duration {
+	interval := float64(cfg.RetryInterval) * math.Pow(cfg.Multiplier, float64(attempt-1))
+	maxInterval := float64(cfg.MaxInterval)
+	if interval > maxInterval {
+		interval = maxInterval
+	}
+	jitter := rand.Float64() * 0.3 * interval
+	return time.Duration(interval + jitter)
 }
 
 func (c *Connection) Close() error {
