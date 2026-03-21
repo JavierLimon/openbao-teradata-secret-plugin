@@ -46,6 +46,12 @@ func (b *Backend) pathCredsRead(ctx context.Context, req *logical.Request, data 
 		return nil, fmt.Errorf("role %q not found", name)
 	}
 
+	if role.UsernamePrefix != "" {
+		if err := teradb.ValidateUsername(role.UsernamePrefix); err != nil {
+			return nil, fmt.Errorf("invalid username_prefix: %w", err)
+		}
+	}
+
 	cfg, err := getConfig(ctx, req.Storage)
 	if err != nil {
 		return nil, err
@@ -56,6 +62,10 @@ func (b *Backend) pathCredsRead(ctx context.Context, req *logical.Request, data 
 
 	username := generateUsername(role.UsernamePrefix)
 	password := generatePassword()
+
+	if err := teradb.ValidateUsername(username); err != nil {
+		return nil, fmt.Errorf("generated username validation failed: %w", err)
+	}
 
 	createSQL := buildTeradataCreateUserSQL(role, username, password)
 	_, err = executeSQL(ctx, cfg.ConnectionString, createSQL)

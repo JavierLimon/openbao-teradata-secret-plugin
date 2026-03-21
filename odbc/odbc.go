@@ -8,7 +8,24 @@ import (
 	"strings"
 )
 
-var ErrNotConnected = errors.New("not connected")
+var (
+	ErrNotConnected    = errors.New("not connected")
+	ErrEmptyUsername   = errors.New("username cannot be empty")
+	ErrInvalidUsername = errors.New("username contains invalid characters")
+	ErrUsernameTooLong = errors.New("username cannot exceed 30 characters")
+	ErrSQLInjection    = errors.New("potential SQL injection attempt detected")
+)
+
+var sqlKeywords = []string{
+	"SELECT", "INSERT", "UPDATE", "DELETE", "DROP", "CREATE", "ALTER", "TRUNCATE",
+	"GRANT", "REVOKE", "EXEC", "EXECUTE", "CALL", "DECLARE", "MERGE",
+	"UNION", "INTO", "FROM", "WHERE", "JOIN", "GROUP BY", "ORDER BY",
+}
+
+var sqlInjectionPatterns = []string{
+	";", "--", "/*", "*/", "xp_", "sp_", "sys.", "sysobjects",
+	"waitfor", "delay", "0x", "char(", "nchar(", "varchar(",
+}
 
 type Connection struct {
 	connString string
@@ -130,15 +147,30 @@ func AlterUserPassword(db *sql.DB, username, newPassword string) error {
 
 func ValidateUsername(username string) error {
 	if username == "" {
-		return errors.New("username cannot be empty")
+		return ErrEmptyUsername
 	}
 	if len(username) > 30 {
-		return errors.New("username cannot exceed 30 characters")
+		return ErrUsernameTooLong
 	}
+
+	upperUsername := strings.ToUpper(username)
+
+	for _, pattern := range sqlInjectionPatterns {
+		if strings.Contains(upperUsername, strings.ToUpper(pattern)) {
+			return fmt.Errorf("%w: found pattern '%s'", ErrSQLInjection, pattern)
+		}
+	}
+
+	for _, keyword := range sqlKeywords {
+		if strings.Contains(upperUsername, keyword) {
+			return fmt.Errorf("%w: found SQL keyword '%s'", ErrSQLInjection, keyword)
+		}
+	}
+
 	validChars := "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_$"
 	for _, c := range username {
 		if !strings.ContainsRune(validChars, c) {
-			return fmt.Errorf("username contains invalid character: %c", c)
+			return fmt.Errorf("%w: invalid character '%c'", ErrInvalidUsername, c)
 		}
 	}
 	return nil
