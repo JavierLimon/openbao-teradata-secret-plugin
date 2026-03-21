@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	mrand "math/rand"
 	"strings"
 	"time"
 
@@ -315,12 +316,74 @@ func buildTeradataCreateUserSQL(role *models.Role, username, password string) st
 	return sb.String()
 }
 
+const (
+	passwordMinLength = 16
+	passwordMaxLength = 32
+	lowerChars        = "abcdefghijklmnopqrstuvwxyz"
+	upperChars        = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+	digitChars        = "0123456789"
+	specialChars      = "!@#$%^&*()_+-=[]{}|;:,.<>?"
+	allPasswordChars  = lowerChars + upperChars + digitChars + specialChars
+)
+
 func generatePassword() string {
-	bytes := make([]byte, 20)
+	charset := []rune(allPasswordChars)
+	length := passwordMinLength + mrand.Intn(passwordMaxLength-passwordMinLength+1)
+	bytes := make([]byte, length)
+
 	if _, err := rand.Read(bytes); err != nil {
 		return ""
 	}
-	return hex.EncodeToString(bytes)
+
+	for i := range bytes {
+		bytes[i] = byte(charset[mrand.Intn(len(charset))])
+	}
+
+	password := string(bytes)
+	password = ensurePasswordRequirements(password)
+	return password
+}
+
+func ensurePasswordRequirements(password string) string {
+	runes := []rune(password)
+	hasLower := false
+	hasUpper := false
+	hasDigit := false
+	hasSpecial := false
+
+	for _, r := range runes {
+		switch {
+		case strings.ContainsRune(lowerChars, r):
+			hasLower = true
+		case strings.ContainsRune(upperChars, r):
+			hasUpper = true
+		case strings.ContainsRune(digitChars, r):
+			hasDigit = true
+		case strings.ContainsRune(specialChars, r):
+			hasSpecial = true
+		}
+	}
+
+	required := []struct {
+		check bool
+		chars string
+	}{
+		{hasLower, lowerChars},
+		{hasUpper, upperChars},
+		{hasDigit, digitChars},
+		{hasSpecial, specialChars},
+	}
+
+	idx := 0
+	for _, req := range required {
+		if !req.check {
+			pos := idx % len(runes)
+			runes[pos] = rune(req.chars[mrand.Intn(len(req.chars))])
+			idx++
+		}
+	}
+
+	return string(runes)
 }
 
 func generateUsername(prefix string) string {
