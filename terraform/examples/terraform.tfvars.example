@@ -1,0 +1,13 @@
+vault_address    = "http://localhost:8200"
+vault_token      = "your-vault-token-here"
+skip_tls_verify  = false
+
+teradata_host         = "teradata.example.com"
+teradata_root_user    = "dbadmin"
+teradata_root_password = "your-password-here"
+
+max_open_connections = 10
+max_idle_connections  = 5
+connection_timeout    = 30
+
+database_name = "mydb"
