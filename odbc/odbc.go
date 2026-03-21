@@ -330,7 +330,7 @@ func (c *Connection) Ping() error {
 	return c.db.Ping()
 }
 
-func (c *Connection) Validate() error {
+func (c *Connection) Validate(ctx context.Context) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -338,10 +338,14 @@ func (c *Connection) Validate() error {
 		return ErrNotConnected
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	validateCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
-	if err := c.db.PingContext(ctx); err != nil {
+	if err := c.db.PingContext(validateCtx); err != nil {
 		c.connected = false
 		return fmt.Errorf("connection validation failed: %w", err)
 	}

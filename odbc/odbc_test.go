@@ -58,14 +58,14 @@ func TestConnectionValidation(t *testing.T) {
 		db:        nil,
 	}
 
-	if err := conn.Validate(); err != ErrNotConnected {
+	if err := conn.Validate(context.Background()); err != ErrNotConnected {
 		t.Errorf("Validate() expected ErrNotConnected for unconnected connection, got: %v", err)
 	}
 
 	conn.connected = true
 	conn.db = nil
 
-	if err := conn.Validate(); err != ErrNotConnected {
+	if err := conn.Validate(context.Background()); err != ErrNotConnected {
 		t.Errorf("Validate() expected ErrNotConnected for nil db, got: %v", err)
 	}
 }

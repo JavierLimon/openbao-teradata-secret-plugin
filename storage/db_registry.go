@@ -193,24 +193,24 @@ func (c *DBConnection) TouchLastUsed() {
 	c.lastUsed = time.Now()
 }
 
-func (c *DBConnection) warmupPool() {
+func (c *DBConnection) warmupPool(ctx context.Context) {
 	defer close(c.warmupDone)
 
 	if c.Database == nil || c.minConnections <= 0 {
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), c.Config.ConnectionTimeout)
+	warmupCtx, cancel := context.WithTimeout(ctx, c.Config.ConnectionTimeout)
 	defer cancel()
 
 	for i := 0; i < c.minConnections; i++ {
 		select {
-		case <-ctx.Done():
+		case <-warmupCtx.Done():
 			return
 		default:
 		}
 
-		conn, err := c.Database.Conn(ctx)
+		conn, err := c.Database.Conn(warmupCtx)
 		if err != nil {
 			continue
 		}
@@ -233,11 +233,11 @@ func (r *DBRegistry) runHealthChecks() {
 	r.mu.RUnlock()
 
 	for _, conn := range connections {
-		conn.CheckHealth()
+		conn.CheckHealth(context.Background())
 	}
 }
 
-func (c *DBConnection) CheckHealth() error {
+func (c *DBConnection) CheckHealth(ctx context.Context) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -253,10 +253,13 @@ func (c *DBConnection) CheckHealth() error {
 		return c.healthCheckErr
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), c.Config.HealthCheckTimeout)
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	healthCtx, cancel := context.WithTimeout(ctx, c.Config.HealthCheckTimeout)
 	defer cancel()
 
-	err := c.Database.PingContext(ctx)
+	err := c.Database.PingContext(healthCtx)
 	duration := time.Since(startTime).Seconds()
 	if err != nil {
 		c.state = StateUnhealthy
@@ -403,7 +406,7 @@ func (r *DBRegistry) AddConnection(name string, config *DBConfig) (*DBConnection
 	})
 
 	if config.MinConnections > 0 {
-		go dbc.warmupPool()
+		go dbc.warmupPool(context.Background())
 	}
 
 	return dbc, nil
@@ -451,7 +454,7 @@ func (c *DBConnection) ensureMinConnections() error {
 		}
 
 		for i := 0; i < toOpen; i++ {
-			if err := c.pingAndTrackConnection(); err != nil {
+			if err := c.pingAndTrackConnection(context.Background()); err != nil {
 				return err
 			}
 		}
@@ -460,11 +463,14 @@ func (c *DBConnection) ensureMinConnections() error {
 	return nil
 }
 
-func (c *DBConnection) pingAndTrackConnection() error {
-	ctx, cancel := context.WithTimeout(context.Background(), c.Config.ConnectionTimeout)
+func (c *DBConnection) pingAndTrackConnection(ctx context.Context) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	pingCtx, cancel := context.WithTimeout(ctx, c.Config.ConnectionTimeout)
 	defer cancel()
 
-	if err := c.Database.PingContext(ctx); err != nil {
+	if err := c.Database.PingContext(pingCtx); err != nil {
 		return fmt.Errorf("failed to open min connection: %w", err)
 	}
 	c.lastUsed = time.Now()
@@ -592,7 +598,7 @@ func (r *DBRegistry) UpdateConnection(name string, config *DBConfig) (*DBConnect
 	})
 
 	if config.MinConnections > 0 {
-		go dbc.warmupPool()
+		go dbc.warmupPool(context.Background())
 	}
 
 	return dbc, nil
