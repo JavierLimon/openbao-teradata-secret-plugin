@@ -80,6 +80,7 @@ func (b *Backend) Setup(ctx context.Context, cfg *logical.BackendConfig) error {
 }
 
 func (b *Backend) prewarmPools(ctx context.Context) error {
+	logging.LogConnectionEvent(nil, "pool_warmup_started", "", nil)
 	configKeys := []string{"config"}
 
 	entries, err := b.storage.List(ctx, "config/")
@@ -148,6 +149,7 @@ func (b *Backend) prewarmPools(ctx context.Context) error {
 		}
 	}
 
+	logging.LogConnectionEvent(nil, "pool_warmup_completed", "", nil)
 	return nil
 }
 
