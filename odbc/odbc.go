@@ -67,6 +67,23 @@ type Connection struct {
 	keepAliveDone   chan struct{}
 	keepAliveInt    time.Duration
 	maxResultRows   int
+	retryConfig     *QueryRetryConfig
+}
+
+type QueryRetryConfig struct {
+	MaxRetries    int
+	RetryInterval time.Duration
+	MaxInterval   time.Duration
+	Multiplier    float64
+}
+
+func DefaultQueryRetryConfig() *QueryRetryConfig {
+	return &QueryRetryConfig{
+		MaxRetries:    DefaultMaxRetries,
+		RetryInterval: DefaultRetryInterval,
+		MaxInterval:   DefaultMaxRetryInterval,
+		Multiplier:    DefaultRetryMultiplier,
+	}
 }
 
 type SSLConfig struct {
@@ -270,7 +287,7 @@ func ConnectWithRetry(connString string, cfg *ConnectConfig) (*Connection, error
 				break
 			}
 			if attempt < cfg.MaxRetries {
-				time.Sleep(calculateBackoff(attempt, cfg))
+				time.Sleep(calculateConnectBackoff(attempt, cfg))
 			}
 			continue
 		}
@@ -282,7 +299,7 @@ func ConnectWithRetry(connString string, cfg *ConnectConfig) (*Connection, error
 				break
 			}
 			if attempt < cfg.MaxRetries {
-				time.Sleep(calculateBackoff(attempt, cfg))
+				time.Sleep(calculateConnectBackoff(attempt, cfg))
 			}
 			continue
 		}
@@ -316,7 +333,17 @@ func isRetryableError(err error) bool {
 	return false
 }
 
-func calculateBackoff(attempt int, cfg *ConnectConfig) time.Duration {
+func calculateConnectBackoff(attempt int, cfg *ConnectConfig) time.Duration {
+	interval := float64(cfg.RetryInterval) * math.Pow(cfg.Multiplier, float64(attempt-1))
+	maxInterval := float64(cfg.MaxInterval)
+	if interval > maxInterval {
+		interval = maxInterval
+	}
+	jitter := rand.Float64() * 0.3 * interval
+	return time.Duration(interval + jitter)
+}
+
+func calculateQueryBackoff(attempt int, cfg *QueryRetryConfig) time.Duration {
 	interval := float64(cfg.RetryInterval) * math.Pow(cfg.Multiplier, float64(attempt-1))
 	maxInterval := float64(cfg.MaxInterval)
 	if interval > maxInterval {
@@ -459,26 +486,132 @@ func (c *Connection) Execute(ctx context.Context, query string, args ...interfac
 	if !c.connected || c.db == nil {
 		return nil, ErrNotConnected
 	}
-	return c.db.ExecContext(ctx, query, args...)
+
+	cfg := c.retryConfig
+	if cfg == nil {
+		cfg = DefaultQueryRetryConfig()
+	}
+
+	var lastErr error
+	for attempt := 1; attempt <= cfg.MaxRetries; attempt++ {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		default:
+		}
+
+		result, err := c.db.ExecContext(ctx, query, args...)
+		if err == nil {
+			return result, nil
+		}
+
+		lastErr = err
+		if !isRetryableError(err) {
+			return nil, err
+		}
+
+		if attempt < cfg.MaxRetries {
+			backoff := calculateQueryBackoff(attempt, cfg)
+			sleepCtx, cancel := context.WithTimeout(ctx, backoff)
+			<-sleepCtx.Done()
+			cancel()
+			if sleepCtx.Err() != nil && sleepCtx.Err() != context.DeadlineExceeded {
+				return nil, sleepCtx.Err()
+			}
+		}
+	}
+
+	return nil, lastErr
 }
 
 func (c *Connection) Query(ctx context.Context, query string, args ...interface{}) (*sql.Rows, error) {
 	if !c.connected || c.db == nil {
 		return nil, ErrNotConnected
 	}
+
+	cfg := c.retryConfig
+	if cfg == nil {
+		cfg = DefaultQueryRetryConfig()
+	}
+
 	if c.maxResultRows > 0 {
 		query = applyResultLimit(query, c.maxResultRows)
 	}
-	return c.db.QueryContext(ctx, query, args...)
+
+	var lastErr error
+	for attempt := 1; attempt <= cfg.MaxRetries; attempt++ {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		default:
+		}
+
+		rows, err := c.db.QueryContext(ctx, query, args...)
+		if err == nil {
+			return rows, nil
+		}
+
+		lastErr = err
+		if !isRetryableError(err) {
+			return nil, err
+		}
+
+		if attempt < cfg.MaxRetries {
+			backoff := calculateQueryBackoff(attempt, cfg)
+			sleepCtx, cancel := context.WithTimeout(ctx, backoff)
+			<-sleepCtx.Done()
+			cancel()
+			if sleepCtx.Err() != nil && sleepCtx.Err() != context.DeadlineExceeded {
+				return nil, sleepCtx.Err()
+			}
+		}
+	}
+
+	return nil, lastErr
 }
 
 func (c *Connection) QueryRow(ctx context.Context, query string, args ...interface{}) *sql.Row {
 	if !c.connected || c.db == nil {
 		return nil
 	}
+
+	cfg := c.retryConfig
+	if cfg == nil {
+		cfg = DefaultQueryRetryConfig()
+	}
+
 	if c.maxResultRows > 0 {
 		query = applyResultLimit(query, c.maxResultRows)
 	}
+
+	for attempt := 1; attempt <= cfg.MaxRetries; attempt++ {
+		select {
+		case <-ctx.Done():
+			return nil
+		default:
+		}
+
+		row := c.db.QueryRowContext(ctx, query, args...)
+		err := row.Err()
+		if err == nil {
+			return row
+		}
+
+		if !isRetryableError(err) {
+			return row
+		}
+
+		if attempt < cfg.MaxRetries {
+			backoff := calculateQueryBackoff(attempt, cfg)
+			sleepCtx, cancel := context.WithTimeout(ctx, backoff)
+			<-sleepCtx.Done()
+			cancel()
+			if sleepCtx.Err() != nil && sleepCtx.Err() != context.DeadlineExceeded {
+				return nil
+			}
+		}
+	}
+
 	return c.db.QueryRowContext(ctx, query, args...)
 }
 
@@ -589,6 +722,7 @@ func ValidateUsername(username string) error {
 
 // ExecuteGrantStatements executes multiple GRANT statements
 // Statements are separated by semicolons. Empty statements are skipped.
+// Retries on transient errors with exponential backoff.
 func (c *Connection) ExecuteGrantStatements(ctx context.Context, grantStatements string) error {
 	if !c.connected {
 		return errors.New("not connected")
@@ -598,6 +732,43 @@ func (c *Connection) ExecuteGrantStatements(ctx context.Context, grantStatements
 		return nil
 	}
 
+	cfg := c.retryConfig
+	if cfg == nil {
+		cfg = DefaultQueryRetryConfig()
+	}
+
+	var lastErr error
+	for attempt := 1; attempt <= cfg.MaxRetries; attempt++ {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+
+		lastErr = c.executeGrantStatementsOnce(ctx, grantStatements)
+		if lastErr == nil {
+			return nil
+		}
+
+		if !isRetryableError(lastErr) {
+			return lastErr
+		}
+
+		if attempt < cfg.MaxRetries {
+			backoff := calculateQueryBackoff(attempt, cfg)
+			sleepCtx, cancel := context.WithTimeout(ctx, backoff)
+			<-sleepCtx.Done()
+			cancel()
+			if sleepCtx.Err() != nil && sleepCtx.Err() != context.DeadlineExceeded {
+				return sleepCtx.Err()
+			}
+		}
+	}
+
+	return lastErr
+}
+
+func (c *Connection) executeGrantStatementsOnce(ctx context.Context, grantStatements string) error {
 	statements := parseSQLStatements(grantStatements)
 
 	for _, stmt := range statements {
@@ -666,7 +837,7 @@ func normalizeGrantStatement(stmt string) string {
 }
 
 // ExecuteMultipleStatements executes multiple SQL statements separated by semicolons
-// Returns error if any statement fails
+// Returns error if any statement fails. Retries on transient errors with exponential backoff.
 func (c *Connection) ExecuteMultipleStatements(ctx context.Context, sqlStatements string) error {
 	if !c.connected {
 		return errors.New("not connected")
@@ -676,6 +847,43 @@ func (c *Connection) ExecuteMultipleStatements(ctx context.Context, sqlStatement
 		return nil
 	}
 
+	cfg := c.retryConfig
+	if cfg == nil {
+		cfg = DefaultQueryRetryConfig()
+	}
+
+	var lastErr error
+	for attempt := 1; attempt <= cfg.MaxRetries; attempt++ {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+
+		lastErr = c.executeMultipleStatementsOnce(ctx, sqlStatements)
+		if lastErr == nil {
+			return nil
+		}
+
+		if !isRetryableError(lastErr) {
+			return lastErr
+		}
+
+		if attempt < cfg.MaxRetries {
+			backoff := calculateQueryBackoff(attempt, cfg)
+			sleepCtx, cancel := context.WithTimeout(ctx, backoff)
+			<-sleepCtx.Done()
+			cancel()
+			if sleepCtx.Err() != nil && sleepCtx.Err() != context.DeadlineExceeded {
+				return sleepCtx.Err()
+			}
+		}
+	}
+
+	return lastErr
+}
+
+func (c *Connection) executeMultipleStatementsOnce(ctx context.Context, sqlStatements string) error {
 	statements := parseSQLStatements(sqlStatements)
 
 	for _, stmt := range statements {

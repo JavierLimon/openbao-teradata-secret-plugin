@@ -204,19 +204,19 @@ func TestCalculateBackoff(t *testing.T) {
 		Multiplier:    2.0,
 	}
 
-	backoff1 := calculateBackoff(1, cfg)
+	backoff1 := calculateConnectBackoff(1, cfg)
 	if backoff1 < 100*time.Millisecond || backoff1 > 130*time.Millisecond {
-		t.Errorf("calculateBackoff(1) = %v, expected ~100-130ms", backoff1)
+		t.Errorf("calculateConnectBackoff(1) = %v, expected ~100-130ms", backoff1)
 	}
 
-	backoff2 := calculateBackoff(2, cfg)
+	backoff2 := calculateConnectBackoff(2, cfg)
 	if backoff2 < 200*time.Millisecond || backoff2 > 260*time.Millisecond {
-		t.Errorf("calculateBackoff(2) = %v, expected ~200-260ms", backoff2)
+		t.Errorf("calculateConnectBackoff(2) = %v, expected ~200-260ms", backoff2)
 	}
 
-	backoff3 := calculateBackoff(3, cfg)
+	backoff3 := calculateConnectBackoff(3, cfg)
 	if backoff3 < 400*time.Millisecond || backoff3 > 520*time.Millisecond {
-		t.Errorf("calculateBackoff(3) = %v, expected ~400-520ms", backoff3)
+		t.Errorf("calculateConnectBackoff(3) = %v, expected ~400-520ms", backoff3)
 	}
 }
 
