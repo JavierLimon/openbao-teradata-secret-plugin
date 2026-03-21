@@ -142,6 +142,7 @@ func (b *Backend) paths() []*framework.Path {
 		b.pathLiveness(),
 		b.pathVersion(),
 		b.pathAPIVersion(),
+		b.pathInfo(),
 		b.pathPoolStats(),
 		b.pathMetrics(),
 		b.pathRateLimitConfig(),

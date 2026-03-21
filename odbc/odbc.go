@@ -6,7 +6,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -29,32 +28,6 @@ var sqlKeywords = []string{
 var sqlInjectionPatterns = []string{
 	";", "--", "/*", "*/", "xp_", "sp_", "sys.", "sysobjects",
 	"waitfor", "delay", "0x", "char(", "nchar(", "varchar(",
-}
-
-var invalidConnectionStringChars = []string{
-	";", "--", "/*", "*/", "'", "\"", "\\", "\x00",
-}
-
-var requiredConnectionParams = []string{
-	"DSN",
-	"SERVER",
-}
-
-type ConnectionStringConfig struct {
-	DSN      string
-	SERVER   string
-	UID      string
-	PWD      string
-	DATABASE string
-}
-
-type ConnectionStringValidationError struct {
-	Field   string
-	Message string
-}
-
-func (e *ConnectionStringValidationError) Error() string {
-	return fmt.Sprintf("connection string validation failed for field '%s': %s", e.Field, e.Message)
 }
 
 type Connection struct {
@@ -217,56 +190,6 @@ func AppendQueryTimeout(baseConnString string, queryTimeout int) string {
 		return fmt.Sprintf("QUERYTIMEOUT=%d", queryTimeout)
 	}
 	return baseConnString + fmt.Sprintf(";QUERYTIMEOUT=%d", queryTimeout)
-}
-
-var (
-	ErrEmptyTemplate    = errors.New("connection string template cannot be empty")
-	ErrMissingParameter = errors.New("missing required parameter in template")
-	ErrInvalidParameter = errors.New("invalid parameter value")
-)
-
-func ValidateConnectionStringParameter(value string) error {
-	if value == "" {
-		return ErrInvalidParameter
-	}
-	upperValue := strings.ToUpper(value)
-	for _, pattern := range sqlInjectionPatterns {
-		if strings.Contains(upperValue, strings.ToUpper(pattern)) {
-			return fmt.Errorf("%w: potentially dangerous pattern '%s'", ErrInvalidParameter, pattern)
-		}
-	}
-	return nil
-}
-
-func BuildConnectionStringFromTemplate(template string, params map[string]string) (string, error) {
-	if strings.TrimSpace(template) == "" {
-		return "", ErrEmptyTemplate
-	}
-
-	if params == nil {
-		params = make(map[string]string)
-	}
-
-	result := template
-
-	for key, value := range params {
-		if value == "" {
-			continue
-		}
-		if err := ValidateConnectionStringParameter(value); err != nil {
-			return "", fmt.Errorf("parameter %s: %w", key, err)
-		}
-		placeholder := fmt.Sprintf("{{%s}}", key)
-		result = strings.ReplaceAll(result, placeholder, value)
-	}
-
-	re := regexp.MustCompile(`\{\{([^}]+)\}\}`)
-	unresolved := re.FindAllString(result, -1)
-	if len(unresolved) > 0 {
-		return "", fmt.Errorf("%w: %s", ErrMissingParameter, strings.Join(unresolved, ", "))
-	}
-
-	return result, nil
 }
 
 func Connect(connString string) (*Connection, error) {
@@ -625,91 +548,44 @@ func (c *Connection) ExecuteMultipleStatements(sqlStatements string) error {
 	return nil
 }
 
-func ParseConnectionString(connString string) (*ConnectionStringConfig, error) {
-	if strings.TrimSpace(connString) == "" {
-		return nil, errors.New("connection string cannot be empty")
-	}
-
-	config := &ConnectionStringConfig{}
-	parts := strings.Split(connString, ";")
-
-	for _, part := range parts {
-		part = strings.TrimSpace(part)
-		if part == "" {
-			continue
-		}
-
-		idx := strings.Index(part, "=")
-		if idx == -1 {
-			return nil, fmt.Errorf("invalid connection string format: missing '=' in '%s'", part)
-		}
-
-		key := strings.ToUpper(strings.TrimSpace(part[:idx]))
-		value := strings.TrimSpace(part[idx+1:])
-
-		switch key {
-		case "DSN":
-			config.DSN = value
-		case "SERVER":
-			config.SERVER = value
-		case "UID":
-			config.UID = value
-		case "PWD":
-			config.PWD = value
-		case "DATABASE":
-			config.DATABASE = value
-		}
-	}
-
-	return config, nil
+type DatabaseInfo struct {
+	DriverName    string `json:"driver_name"`
+	DriverVersion string `json:"driver_version"`
+	DBVersion     string `json:"db_version"`
+	DBName        string `json:"db_name"`
 }
 
-func ValidateConnectionString(connString string) error {
-	if strings.TrimSpace(connString) == "" {
-		return errors.New("connection string cannot be empty")
+func (c *Connection) GetDatabaseInfo() (*DatabaseInfo, error) {
+	if !c.connected || c.db == nil {
+		return nil, ErrNotConnected
 	}
 
-	for _, char := range invalidConnectionStringChars {
-		if strings.Contains(connString, char) {
-			return fmt.Errorf("connection string contains invalid character: '%s'", char)
+	info := &DatabaseInfo{
+		DriverName: "odbc",
+	}
+
+	var dbVersion, dbName string
+	queryRowErr := c.db.QueryRow("SELECT InfoData FROM DBC.Info WHERE InfoKey = 'Version'").Scan(&dbVersion)
+	if queryRowErr != nil {
+		alternateErr := c.db.QueryRow("SELECT TRIM(SoftwareRelease) FROM DBC.DatabasesV WHERE DatabaseName = 'DBC'").Scan(&dbVersion)
+		if alternateErr != nil {
+			c.db.QueryRow("SELECT TOP 1 'Teradata' || ' ' || TRIM(Release) FROM DBC.SessionInfo").Scan(&dbVersion)
 		}
 	}
+	info.DBVersion = dbVersion
 
-	parsed, err := ParseConnectionString(connString)
-	if err != nil {
-		return err
+	queryRowErr = c.db.QueryRow("SELECT InfoData FROM DBC.Info WHERE InfoKey = 'DatabaseName'").Scan(&dbName)
+	if queryRowErr != nil {
+		c.db.QueryRow("SELECT TOP 1 TRIM(DatabaseName) FROM DBC.DatabasesV").Scan(&dbName)
 	}
+	info.DBName = dbName
 
-	hasDSN := parsed.DSN != ""
-	hasServer := parsed.SERVER != ""
-
-	if !hasDSN && !hasServer {
-		return errors.New("connection string must contain either DSN or SERVER parameter")
-	}
-
-	if parsed.UID != "" {
-		if err := ValidateUsername(parsed.UID); err != nil {
-			return fmt.Errorf("invalid UID: %w", err)
-		}
-	}
-
-	return nil
+	return info, nil
 }
 
-func ContainsSQLInjectionPattern(value string) bool {
-	upperValue := strings.ToUpper(value)
-	for _, pattern := range sqlInjectionPatterns {
-		if strings.Contains(upperValue, pattern) {
-			return true
-		}
+func (c *Connection) GetDriverName() string {
+	if !c.connected || c.db == nil {
+		return ""
 	}
-	return false
-}
-
-func SanitizeConnectionStringParameter(value string) string {
-	sanitized := strings.TrimSpace(value)
-	for _, char := range invalidConnectionStringChars {
-		sanitized = strings.ReplaceAll(sanitized, char, "")
-	}
-	return sanitized
+	return "odbc"
 }
