@@ -13,12 +13,14 @@ import (
 type DBConfig struct {
 	Name                  string        `json:"name"`
 	ConnectionString      string        `json:"connection_string"`
+	MinConnections        int           `json:"min_connections"`
 	MaxOpenConnections    int           `json:"max_open_connections"`
 	MaxIdleConnections    int           `json:"max_idle_connections"`
 	ConnectionTimeout     time.Duration `json:"connection_timeout"`
 	IdleConnectionTimeout time.Duration `json:"idle_connection_timeout"`
 	HealthCheckInterval   time.Duration `json:"health_check_interval"`
 	HealthCheckTimeout    time.Duration `json:"health_check_timeout"`
+	MinConnCheckInterval  time.Duration `json:"min_conn_check_interval"`
 }
 
 type ConnectionState int
@@ -41,22 +43,24 @@ type DBConnection struct {
 }
 
 type DBRegistry struct {
-	connections map[string]*DBConnection
-	mu          sync.RWMutex
-	ctx         context.Context
-	cancel      context.CancelFunc
-	healthDone  chan struct{}
-	cleanupDone chan struct{}
+	connections  map[string]*DBConnection
+	mu           sync.RWMutex
+	ctx          context.Context
+	cancel       context.CancelFunc
+	healthDone   chan struct{}
+	cleanupDone  chan struct{}
+	minConnsDone chan struct{}
 }
 
 func NewDBRegistry() *DBRegistry {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &DBRegistry{
-		connections: make(map[string]*DBConnection),
-		ctx:         ctx,
-		cancel:      cancel,
-		healthDone:  make(chan struct{}),
-		cleanupDone: make(chan struct{}),
+		connections:  make(map[string]*DBConnection),
+		ctx:          ctx,
+		cancel:       cancel,
+		healthDone:   make(chan struct{}),
+		cleanupDone:  make(chan struct{}),
+		minConnsDone: make(chan struct{}),
 	}
 }
 
@@ -234,6 +238,94 @@ func (r *DBRegistry) AddConnection(name string, config *DBConfig) (*DBConnection
 
 	r.connections[name] = dbc
 	return dbc, nil
+}
+
+func (r *DBRegistry) EnsureMinConnections() error {
+	r.mu.RLock()
+	var connections []*DBConnection
+	for _, conn := range r.connections {
+		connections = append(connections, conn)
+	}
+	r.mu.RUnlock()
+
+	for _, conn := range connections {
+		if err := conn.ensureMinConnections(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (c *DBConnection) ensureMinConnections() error {
+	if c.Config.MinConnections <= 0 {
+		return nil
+	}
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.Database == nil {
+		return fmt.Errorf("database connection is nil")
+	}
+
+	stats := c.Database.Stats()
+	if stats.Idle >= c.Config.MinConnections {
+		return nil
+	}
+
+	needed := c.Config.MinConnections - stats.Idle
+	if stats.OpenConnections < c.Config.MaxOpenConnections {
+		canOpen := c.Config.MaxOpenConnections - stats.OpenConnections
+		toOpen := needed
+		if toOpen > canOpen {
+			toOpen = canOpen
+		}
+
+		for i := 0; i < toOpen; i++ {
+			if err := c.pingAndTrackConnection(); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
+func (c *DBConnection) pingAndTrackConnection() error {
+	ctx, cancel := context.WithTimeout(context.Background(), c.Config.ConnectionTimeout)
+	defer cancel()
+
+	if err := c.Database.PingContext(ctx); err != nil {
+		return fmt.Errorf("failed to open min connection: %w", err)
+	}
+	c.lastUsed = time.Now()
+	return nil
+}
+
+func (r *DBRegistry) StartMinConnectionsJob() {
+	interval := 30 * time.Second
+	if r.ctx.Err() != nil {
+		return
+	}
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		r.EnsureMinConnections()
+		for {
+			select {
+			case <-r.ctx.Done():
+				close(r.minConnsDone)
+				return
+			case <-ticker.C:
+				r.EnsureMinConnections()
+			}
+		}
+	}()
+}
+
+func (r *DBRegistry) StopMinConnectionsJob() {
+	r.cancel()
+	<-r.minConnsDone
 }
 
 func (r *DBRegistry) RemoveConnection(name string) {

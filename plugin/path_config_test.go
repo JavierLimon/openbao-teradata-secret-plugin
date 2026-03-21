@@ -370,6 +370,9 @@ func getConfigFieldSchema() map[string]*framework.FieldSchema {
 		"connection_string": {
 			Type: framework.TypeString,
 		},
+		"min_connections": {
+			Type: framework.TypeInt,
+		},
 		"max_open_connections": {
 			Type: framework.TypeInt,
 		},
