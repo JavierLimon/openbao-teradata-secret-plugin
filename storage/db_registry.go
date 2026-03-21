@@ -67,6 +67,21 @@ type DBRegistry struct {
 	minConnsDone   chan struct{}
 }
 
+type PoolStats struct {
+	State             ConnectionState `json:"state"`
+	OpenConnections   int             `json:"open_connections"`
+	InUse             int             `json:"in_use"`
+	Idle              int             `json:"idle"`
+	MaxOpen           int             `json:"max_open"`
+	MinConnections    int             `json:"min_connections"`
+	WaitCount         int64           `json:"wait_count"`
+	WaitDurationNanos int64           `json:"wait_duration_nanos"`
+	MaxIdleClosed     int64           `json:"max_idle_closed"`
+	MaxLifetimeClosed int64           `json:"max_lifetime_closed"`
+	LastHealthCheck   time.Time       `json:"last_health_check"`
+	HealthError       error           `json:"health_error,omitempty"`
+}
+
 func NewDBRegistry() *DBRegistry {
 	healthCtx, healthCancel := context.WithCancel(context.Background())
 	cleanupCtx, cleanupCancel := context.WithCancel(context.Background())
@@ -457,6 +472,39 @@ func (r *DBRegistry) GetConnectionStats(name string) (state ConnectionState, ope
 	idleConns = conn.Database.Stats().Idle
 
 	return state, openConns, idleConns, err
+}
+
+func (r *DBRegistry) GetDetailedConnectionStats(name string) (*PoolStats, error) {
+	r.mu.RLock()
+	conn, ok := r.connections[name]
+	r.mu.RUnlock()
+
+	if !ok {
+		return nil, fmt.Errorf("connection not found: %s", name)
+	}
+
+	conn.mu.RLock()
+	state := conn.state
+	healthErr := conn.healthCheckErr
+	lastHealthCheck := conn.lastHealthCheck
+	conn.mu.RUnlock()
+
+	stats := conn.Database.Stats()
+
+	return &PoolStats{
+		State:             state,
+		OpenConnections:   stats.OpenConnections,
+		InUse:             stats.InUse,
+		Idle:              stats.Idle,
+		MaxOpen:           stats.MaxOpenConnections,
+		MinConnections:    conn.Config.MinConnections,
+		WaitCount:         stats.WaitCount,
+		WaitDurationNanos: stats.WaitDuration.Nanoseconds(),
+		MaxIdleClosed:     stats.MaxIdleClosed,
+		MaxLifetimeClosed: stats.MaxLifetimeClosed,
+		LastHealthCheck:   lastHealthCheck,
+		HealthError:       healthErr,
+	}, nil
 }
 
 func (r *DBRegistry) Shutdown() {
