@@ -3,7 +3,10 @@ package teradata
 import (
 	"context"
 	"fmt"
+	"log/slog"
+	"time"
 
+	"github.com/JavierLimon/openbao-teradata-secret-plugin/logging"
 	"github.com/JavierLimon/openbao-teradata-secret-plugin/odbc"
 	"github.com/openbao/openbao/sdk/v2/framework"
 	"github.com/openbao/openbao/sdk/v2/logical"
@@ -26,6 +29,11 @@ func (b *Backend) pathHealth() *framework.Path {
 func (b *Backend) pathHealthRead(ctx context.Context, req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
 	cfg, err := getConfig(ctx, req.Storage)
 	if err != nil {
+		logging.Default().Warn("health_check_failed",
+			slog.String("reason", "config_error"),
+			slog.String("error", err.Error()),
+			slog.Time("timestamp", time.Now()),
+		)
 		return &logical.Response{
 			Data: map[string]interface{}{
 				"status":      "unhealthy",
@@ -44,10 +52,61 @@ func (b *Backend) pathHealthRead(ctx context.Context, req *logical.Request, data
 		}, nil
 	}
 
+	registry := b.getDBRegistry()
+	connectionNames := registry.ListConnections()
+
+	poolStatus := make(map[string]interface{})
+	overallHealthy := true
+
+	for _, name := range connectionNames {
+		state, openConns, idleConns, connErr := registry.GetConnectionStats(name)
+		conn, _ := registry.GetConnection(name)
+
+		var lastHealthCheck time.Time
+		if conn != nil {
+			lastHealthCheck = conn.LastHealthCheck()
+		}
+
+		poolInfo := map[string]interface{}{
+			"state":             stateToString(state),
+			"open_connections":  openConns,
+			"idle_connections":  idleConns,
+			"in_use":            openConns - idleConns,
+			"last_health_check": lastHealthCheck,
+		}
+
+		if connErr != nil {
+			poolInfo["error"] = connErr.Error()
+			overallHealthy = false
+			logging.LogConnectionEvent(nil, "health_check_failed", name, map[string]interface{}{
+				"error": connErr.Error(),
+			})
+		}
+
+		poolStatus[name] = poolInfo
+	}
+
+	status := "healthy"
+	if !overallHealthy {
+		status = "degraded"
+	}
+	if len(connectionNames) == 0 {
+		status = "configured_no_connections"
+	}
+
+	logging.Default().Info("health_check_completed",
+		slog.String("status", status),
+		slog.Int("pool_count", len(connectionNames)),
+		slog.Time("timestamp", time.Now()),
+	)
+
 	return &logical.Response{
 		Data: map[string]interface{}{
-			"status":      "healthy",
+			"status":      status,
 			"initialized": true,
+			"pool_count":  len(connectionNames),
+			"pool_status": poolStatus,
+			"checked_at":  time.Now(),
 		},
 	}, nil
 }
