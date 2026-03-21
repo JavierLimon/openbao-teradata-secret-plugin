@@ -547,3 +547,45 @@ func (c *Connection) ExecuteMultipleStatements(sqlStatements string) error {
 
 	return nil
 }
+
+type DatabaseInfo struct {
+	DriverName    string `json:"driver_name"`
+	DriverVersion string `json:"driver_version"`
+	DBVersion     string `json:"db_version"`
+	DBName        string `json:"db_name"`
+}
+
+func (c *Connection) GetDatabaseInfo() (*DatabaseInfo, error) {
+	if !c.connected || c.db == nil {
+		return nil, ErrNotConnected
+	}
+
+	info := &DatabaseInfo{
+		DriverName: "odbc",
+	}
+
+	var dbVersion, dbName string
+	queryRowErr := c.db.QueryRow("SELECT InfoData FROM DBC.Info WHERE InfoKey = 'Version'").Scan(&dbVersion)
+	if queryRowErr != nil {
+		alternateErr := c.db.QueryRow("SELECT TRIM(SoftwareRelease) FROM DBC.DatabasesV WHERE DatabaseName = 'DBC'").Scan(&dbVersion)
+		if alternateErr != nil {
+			c.db.QueryRow("SELECT TOP 1 'Teradata' || ' ' || TRIM(Release) FROM DBC.SessionInfo").Scan(&dbVersion)
+		}
+	}
+	info.DBVersion = dbVersion
+
+	queryRowErr = c.db.QueryRow("SELECT InfoData FROM DBC.Info WHERE InfoKey = 'DatabaseName'").Scan(&dbName)
+	if queryRowErr != nil {
+		c.db.QueryRow("SELECT TOP 1 TRIM(DatabaseName) FROM DBC.DatabasesV").Scan(&dbName)
+	}
+	info.DBName = dbName
+
+	return info, nil
+}
+
+func (c *Connection) GetDriverName() string {
+	if !c.connected || c.db == nil {
+		return ""
+	}
+	return "odbc"
+}
