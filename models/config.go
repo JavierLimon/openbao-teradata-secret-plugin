@@ -16,6 +16,7 @@ type Role struct {
 	DBPassword          string `json:"db_password,omitempty"`
 	DefaultTTL          int    `json:"default_ttl"`
 	MaxTTL              int    `json:"max_ttl"`
+	StatementTemplate   string `json:"statement_template"`
 	CreationStatement   string `json:"creation_statement"`
 	RevocationStatement string `json:"revocation_statement"`
 	RollbackStatement   string `json:"rollback_statement"`

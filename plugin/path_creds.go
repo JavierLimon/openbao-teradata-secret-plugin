@@ -54,6 +54,25 @@ func (b *Backend) pathCredsRead(ctx context.Context, req *logical.Request, data 
 		return nil, fmt.Errorf("database configuration not found")
 	}
 
+	creationStatement := role.CreationStatement
+	rollbackStatement := role.RollbackStatement
+
+	if role.StatementTemplate != "" {
+		statement, err := getStatement(ctx, req.Storage, role.StatementTemplate)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load statement template: %w", err)
+		}
+		if statement == nil {
+			return nil, fmt.Errorf("statement template %q not found", role.StatementTemplate)
+		}
+		if statement.CreationStatement != "" {
+			creationStatement = statement.CreationStatement
+		}
+		if statement.RollbackStatement != "" {
+			rollbackStatement = statement.RollbackStatement
+		}
+	}
+
 	username := generateUsername(role.UsernamePrefix)
 	password := generatePassword()
 
@@ -63,12 +82,18 @@ func (b *Backend) pathCredsRead(ctx context.Context, req *logical.Request, data 
 		return nil, fmt.Errorf("failed to create user: %w", err)
 	}
 
-	if role.CreationStatement != "" {
-		additionalSQL := role.CreationStatement
+	if creationStatement != "" {
+		additionalSQL := creationStatement
 		additionalSQL = strings.ReplaceAll(additionalSQL, "{{username}}", username)
 		additionalSQL = strings.ReplaceAll(additionalSQL, "{{password}}", password)
 		_, err = executeSQL(ctx, cfg.ConnectionString, additionalSQL)
 		if err != nil {
+			rollbackSQL := rollbackStatement
+			if rollbackSQL != "" {
+				rollbackSQL = strings.ReplaceAll(rollbackSQL, "{{username}}", username)
+				rollbackSQL = strings.ReplaceAll(rollbackSQL, "{{password}}", password)
+				executeSQL(ctx, cfg.ConnectionString, rollbackSQL)
+			}
 			dropSQL := fmt.Sprintf("DROP USER %s", username)
 			executeSQL(ctx, cfg.ConnectionString, dropSQL)
 			return nil, fmt.Errorf("failed to run creation statement: %w", err)
