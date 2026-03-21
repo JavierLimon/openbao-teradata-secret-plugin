@@ -28,7 +28,7 @@ func (b *Backend) pathConfig() *framework.Path {
 			},
 			"min_connections": {
 				Type:        framework.TypeInt,
-				Description: "Minimum number of connections to maintain",
+				Description: "Minimum number of connections to maintain in the pool",
 				Default:     0,
 			},
 			"max_open_connections": {
@@ -80,6 +80,16 @@ func (b *Backend) pathConfigWrite(ctx context.Context, req *logical.Request, dat
 	maxOpenConnections := data.Get("max_open_connections").(int)
 	maxIdleConnections := data.Get("max_idle_connections").(int)
 	connectionTimeout := data.Get("connection_timeout").(int)
+
+	if minConnections < 0 {
+		return nil, fmt.Errorf("min_connections cannot be negative")
+	}
+	if maxOpenConnections < minConnections {
+		return nil, fmt.Errorf("max_open_connections must be >= min_connections")
+	}
+	if maxIdleConnections > maxOpenConnections {
+		return nil, fmt.Errorf("max_idle_connections cannot exceed max_open_connections")
+	}
 
 	cfg := &models.Config{
 		Region:             region,

@@ -40,6 +40,8 @@ type DBConnection struct {
 	lastHealthCheck time.Time
 	lastUsed        time.Time
 	healthCheckErr  error
+	minConnections  int
+	warmupDone      chan struct{}
 }
 
 type DBRegistry struct {
@@ -142,6 +144,37 @@ func (c *DBConnection) TouchLastUsed() {
 	c.lastUsed = time.Now()
 }
 
+func (c *DBConnection) warmupPool() {
+	defer close(c.warmupDone)
+
+	if c.Database == nil || c.minConnections <= 0 {
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), c.Config.ConnectionTimeout)
+	defer cancel()
+
+	for i := 0; i < c.minConnections; i++ {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+
+		conn, err := c.Database.Conn(ctx)
+		if err != nil {
+			continue
+		}
+		conn.Close()
+	}
+}
+
+func (c *DBConnection) WaitForWarmup() {
+	if c.warmupDone != nil {
+		<-c.warmupDone
+	}
+}
+
 func (r *DBRegistry) runHealthChecks() {
 	r.mu.RLock()
 	var connections []*DBConnection
@@ -219,6 +252,18 @@ func (r *DBRegistry) AddConnection(name string, config *DBConfig) (*DBConnection
 	if config.IdleConnectionTimeout == 0 {
 		config.IdleConnectionTimeout = 5 * time.Minute
 	}
+	if config.MinConnections < 0 {
+		config.MinConnections = 0
+	}
+	if config.MinConnections > config.MaxOpenConnections {
+		config.MinConnections = config.MaxOpenConnections
+	}
+	if config.MaxIdleConnections > config.MaxOpenConnections {
+		config.MaxIdleConnections = config.MaxOpenConnections
+	}
+	if config.MinConnections > config.MaxIdleConnections {
+		config.MaxIdleConnections = config.MinConnections
+	}
 
 	db, err := sql.Open("odbc", config.ConnectionString)
 	if err != nil {
@@ -234,9 +279,16 @@ func (r *DBRegistry) AddConnection(name string, config *DBConfig) (*DBConnection
 		state:           StateUnknown,
 		lastHealthCheck: time.Now(),
 		lastUsed:        time.Now(),
+		minConnections:  config.MinConnections,
+		warmupDone:      make(chan struct{}),
 	}
 
 	r.connections[name] = dbc
+
+	if config.MinConnections > 0 {
+		go dbc.warmupPool()
+	}
+
 	return dbc, nil
 }
 
