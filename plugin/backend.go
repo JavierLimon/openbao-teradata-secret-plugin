@@ -59,17 +59,23 @@ func (b *Backend) Setup(ctx context.Context, cfg *logical.BackendConfig) error {
 func (b *Backend) paths() []*framework.Path {
 	return []*framework.Path{
 		b.pathConfig(),
+		b.pathConfigV1(),
 		b.pathRoles(),
+		b.pathRolesV1(),
 		b.pathRoleList(),
+		b.pathRoleListV1(),
 		b.pathStatements(),
 		b.pathStatementList(),
 		b.pathRotateRoot(),
+		b.pathRotateRootV1(),
 		b.pathCreds(),
+		b.pathCredsV1(),
 		b.pathCredsBatch(),
 		b.pathRenewCreds(),
 		b.pathRevokeCreds(),
 		b.pathHealth(),
 		b.pathVersion(),
+		b.pathAPIVersion(),
 		b.pathPoolStats(),
 	}
 }

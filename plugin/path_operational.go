@@ -71,3 +71,30 @@ func (b *Backend) pathVersionRead(ctx context.Context, req *logical.Request, dat
 		},
 	}, nil
 }
+
+func (b *Backend) pathAPIVersion() *framework.Path {
+	return &framework.Path{
+		Pattern:         "api-version",
+		HelpSynopsis:    "API version information",
+		HelpDescription: "Returns the API version information for the Teradata plugin.",
+
+		Operations: map[logical.Operation]framework.OperationHandler{
+			logical.ReadOperation: &framework.PathOperation{
+				Callback: b.pathAPIVersionRead,
+			},
+		},
+	}
+}
+
+func (b *Backend) pathAPIVersionRead(ctx context.Context, req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
+	return &logical.Response{
+		Data: map[string]interface{}{
+			"api_version":         APIVersion,
+			"api_version_major":   APIVersionMajor,
+			"api_version_minor":   APIVersionMinor,
+			"plugin_version":      Version,
+			"min_supported_major": MinSupportedMajor,
+			"min_supported_minor": MinSupportedMinor,
+		},
+	}, nil
+}
