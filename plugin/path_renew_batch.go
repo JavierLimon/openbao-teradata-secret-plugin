@@ -111,7 +111,8 @@ func (b *Backend) pathRenewCredsBatchHandler(ctx context.Context, req *logical.R
 		return nil, fmt.Errorf("no credentials found to renew")
 	}
 
-	connString := odbc.AppendQueryTimeout(cfg.ConnectionString, cfg.QueryTimeout)
+	connString := odbc.AppendSessionTimeout(cfg.ConnectionString, cfg.SessionTimeout)
+	connString = odbc.AppendQueryTimeout(connString, cfg.QueryTimeout)
 	conn, err := odbc.Connect(connString)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to database: %w", err)

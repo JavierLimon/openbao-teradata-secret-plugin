@@ -233,7 +233,7 @@ func (b *Backend) pathReadinessRead(ctx context.Context, req *logical.Request, d
 		}, nil
 	}
 
-	conn, err := odbc.Connect(odbc.AppendQueryTimeout(cfg.ConnectionString, cfg.QueryTimeout))
+	conn, err := odbc.Connect(odbc.AppendSessionTimeout(odbc.AppendQueryTimeout(cfg.ConnectionString, cfg.QueryTimeout), cfg.SessionTimeout))
 	if err != nil {
 		return &logical.Response{
 			Data: map[string]interface{}{
@@ -416,7 +416,7 @@ func (b *Backend) pathInfoRead(ctx context.Context, req *logical.Request, data *
 		}, nil
 	}
 
-	conn, err := odbc.Connect(odbc.AppendQueryTimeout(cfg.ConnectionString, cfg.QueryTimeout))
+	conn, err := odbc.Connect(odbc.AppendSessionTimeout(odbc.AppendQueryTimeout(cfg.ConnectionString, cfg.QueryTimeout), cfg.SessionTimeout))
 	if err != nil {
 		return &logical.Response{
 			Data: map[string]interface{}{
