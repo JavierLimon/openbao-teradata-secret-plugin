@@ -176,6 +176,8 @@ func (b *Backend) pathRoleCreate(ctx context.Context, req *logical.Request, data
 		return nil, err
 	}
 
+	b.invalidateRoleCache(name)
+
 	_ = audit.LogRoleCreation(ctx, req.Storage, name, role.DBUser, role.StatementTemplate)
 	_ = webhook.SendRoleCreatedWebhook(ctx, req.Storage, name, role.DBUser, role.StatementTemplate)
 
@@ -289,6 +291,8 @@ func (b *Backend) pathRoleUpdate(ctx context.Context, req *logical.Request, data
 		return nil, err
 	}
 
+	b.invalidateRoleCache(name)
+
 	_ = audit.LogRoleUpdate(ctx, req.Storage, name, role.DBUser, role.StatementTemplate)
 	_ = webhook.SendRoleUpdatedWebhook(ctx, req.Storage, name, role.DBUser, role.StatementTemplate)
 
@@ -311,6 +315,8 @@ func (b *Backend) pathRoleDelete(ctx context.Context, req *logical.Request, data
 	if err != nil {
 		return nil, fmt.Errorf("error deleting role: %w", err)
 	}
+
+	b.invalidateRoleCache(name)
 
 	_ = audit.LogRoleDeletion(ctx, req.Storage, name)
 	_ = webhook.SendRoleDeletedWebhook(ctx, req.Storage, name)

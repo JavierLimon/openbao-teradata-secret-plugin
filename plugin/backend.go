@@ -27,6 +27,7 @@ type Backend struct {
 	mu          sync.RWMutex
 	dbRegistry  *storage.DBRegistry
 	credCache   *credentialCache
+	queryCache  *queryResultCache
 	rateLimiter *RateLimiterMiddleware
 }
 
@@ -63,6 +64,7 @@ func (b *Backend) Setup(ctx context.Context, cfg *logical.BackendConfig) error {
 	b.storage = cfg.StorageView
 	b.dbRegistry = storage.NewDBRegistry()
 	b.credCache = newCredentialCache(5*time.Minute, 10000)
+	b.queryCache = newQueryResultCache(5*time.Minute, 1000)
 	b.rateLimiter = NewRateLimiterMiddleware(b, DefaultRateLimitConfig, true)
 
 	return nil
@@ -137,6 +139,12 @@ func (b *Backend) getCredCache() *credentialCache {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 	return b.credCache
+}
+
+func (b *Backend) getQueryCache() *queryResultCache {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return b.queryCache
 }
 
 func (b *Backend) Revoke(ctx context.Context, leaseID string) error {

@@ -102,6 +102,8 @@ func (b *Backend) pathStatementWrite(ctx context.Context, req *logical.Request, 
 		return nil, err
 	}
 
+	b.invalidateStatementCache(name)
+
 	return &logical.Response{
 		Data: map[string]interface{}{
 			"name":                 statement.Name,
@@ -143,6 +145,8 @@ func (b *Backend) pathStatementDelete(ctx context.Context, req *logical.Request,
 	if err != nil {
 		return nil, fmt.Errorf("error deleting statement: %w", err)
 	}
+
+	b.invalidateStatementCache(name)
 
 	return nil, nil
 }

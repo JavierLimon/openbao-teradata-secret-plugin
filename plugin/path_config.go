@@ -114,6 +114,8 @@ func (b *Backend) pathConfigWrite(ctx context.Context, req *logical.Request, dat
 		return nil, err
 	}
 
+	b.invalidateConfigCache(region)
+
 	respData := map[string]interface{}{
 		"connection_string":    "***",
 		"min_connections":      minConnections,
@@ -186,6 +188,8 @@ func (b *Backend) pathConfigDelete(ctx context.Context, req *logical.Request, da
 	if err != nil {
 		return nil, fmt.Errorf("error deleting config: %w", err)
 	}
+
+	b.invalidateConfigCache(region)
 
 	return nil, nil
 }
