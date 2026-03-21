@@ -46,6 +46,40 @@ func (b *Backend) pathConfig() *framework.Path {
 				Description: "Connection timeout in seconds",
 				Default:     30,
 			},
+			"ssl_mode": {
+				Type:        framework.TypeString,
+				Description: "SSL mode: disable, allow, verify-ca, verify-full, require",
+				Default:     "disable",
+			},
+			"ssl_cert": {
+				Type:        framework.TypeString,
+				Description: "Path to SSL certificate file",
+			},
+			"ssl_key": {
+				Type:        framework.TypeString,
+				Description: "Path to SSL key file",
+			},
+			"ssl_root_cert": {
+				Type:        framework.TypeString,
+				Description: "Path to SSL root CA certificate file",
+			},
+			"ssl_key_password": {
+				Type:        framework.TypeString,
+				Description: "Password for the SSL key file",
+			},
+			"ssl_cipher_suites": {
+				Type:        framework.TypeString,
+				Description: "Comma-separated list of SSL cipher suites",
+			},
+			"ssl_secure": {
+				Type:        framework.TypeBool,
+				Description: "Enable SSL/TLS encryption",
+				Default:     false,
+			},
+			"ssl_version": {
+				Type:        framework.TypeString,
+				Description: "SSL/TLS version (TLS 1.2, TLS 1.3)",
+			},
 		},
 
 		Operations: map[logical.Operation]framework.OperationHandler{
@@ -80,6 +114,14 @@ func (b *Backend) pathConfigWrite(ctx context.Context, req *logical.Request, dat
 	maxOpenConnections := data.Get("max_open_connections").(int)
 	maxIdleConnections := data.Get("max_idle_connections").(int)
 	connectionTimeout := data.Get("connection_timeout").(int)
+	sslMode := data.Get("ssl_mode").(string)
+	sslCert := data.Get("ssl_cert").(string)
+	sslKey := data.Get("ssl_key").(string)
+	sslRootCert := data.Get("ssl_root_cert").(string)
+	sslKeyPassword := data.Get("ssl_key_password").(string)
+	sslCipherSuites := data.Get("ssl_cipher_suites").(string)
+	sslSecure := data.Get("ssl_secure").(bool)
+	sslVersion := data.Get("ssl_version").(string)
 
 	if minConnections < 0 {
 		return nil, fmt.Errorf("min_connections cannot be negative")
@@ -91,6 +133,17 @@ func (b *Backend) pathConfigWrite(ctx context.Context, req *logical.Request, dat
 		return nil, fmt.Errorf("max_idle_connections cannot exceed max_open_connections")
 	}
 
+	validSSLModes := map[string]bool{
+		"disable":     true,
+		"allow":       true,
+		"verify-ca":   true,
+		"verify-full": true,
+		"require":     true,
+	}
+	if sslMode != "" && !validSSLModes[sslMode] {
+		return nil, fmt.Errorf("invalid ssl_mode: %s, must be one of: disable, allow, verify-ca, verify-full, require", sslMode)
+	}
+
 	cfg := &models.Config{
 		Region:             region,
 		ConnectionString:   connectionString,
@@ -98,6 +151,14 @@ func (b *Backend) pathConfigWrite(ctx context.Context, req *logical.Request, dat
 		MaxOpenConnections: maxOpenConnections,
 		MaxIdleConnections: maxIdleConnections,
 		ConnectionTimeout:  connectionTimeout,
+		SSLMode:            sslMode,
+		SSLCert:            sslCert,
+		SSLKey:             sslKey,
+		SSLRootCert:        sslRootCert,
+		SSLKeyPassword:     sslKeyPassword,
+		SSLCipherSuites:    sslCipherSuites,
+		SSLSecure:          sslSecure,
+		SSLVersion:         sslVersion,
 	}
 
 	storageKey := "config"
@@ -122,9 +183,19 @@ func (b *Backend) pathConfigWrite(ctx context.Context, req *logical.Request, dat
 		"max_open_connections": maxOpenConnections,
 		"max_idle_connections": maxIdleConnections,
 		"connection_timeout":   connectionTimeout,
+		"ssl_mode":             sslMode,
+		"ssl_cert":             sslCert,
+		"ssl_key":              sslKey,
+		"ssl_root_cert":        sslRootCert,
+		"ssl_cipher_suites":    sslCipherSuites,
+		"ssl_secure":           sslSecure,
+		"ssl_version":          sslVersion,
 	}
 	if region != "" {
 		respData["region"] = region
+	}
+	if sslKeyPassword != "" {
+		respData["ssl_key_password"] = "***"
 	}
 
 	return &logical.Response{
@@ -163,9 +234,19 @@ func (b *Backend) pathConfigRead(ctx context.Context, req *logical.Request, data
 		"max_open_connections": cfg.MaxOpenConnections,
 		"max_idle_connections": cfg.MaxIdleConnections,
 		"connection_timeout":   cfg.ConnectionTimeout,
+		"ssl_mode":             cfg.SSLMode,
+		"ssl_cert":             cfg.SSLCert,
+		"ssl_key":              cfg.SSLKey,
+		"ssl_root_cert":        cfg.SSLRootCert,
+		"ssl_cipher_suites":    cfg.SSLCipherSuites,
+		"ssl_secure":           cfg.SSLSecure,
+		"ssl_version":          cfg.SSLVersion,
 	}
 	if cfg.Region != "" {
 		respData["region"] = cfg.Region
+	}
+	if cfg.SSLKeyPassword != "" {
+		respData["ssl_key_password"] = "***"
 	}
 
 	return &logical.Response{

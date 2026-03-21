@@ -24,6 +24,9 @@ var sensitiveKeywords = []string{
 	"credential",
 	"key",
 	"private",
+	"ssl_key_password",
+	"sslkeypassword",
+	"keypassword",
 }
 
 var requiredKeywords = []string{

@@ -33,6 +33,60 @@ type Connection struct {
 	db         *sql.DB
 }
 
+type SSLConfig struct {
+	Mode         string
+	Cert         string
+	Key          string
+	RootCert     string
+	KeyPassword  string
+	CipherSuites string
+	Secure       bool
+	Version      string
+}
+
+func BuildConnectionString(baseConnString string, ssl *SSLConfig) string {
+	if ssl == nil {
+		return baseConnString
+	}
+
+	var sslParams []string
+
+	if ssl.Mode != "" {
+		sslParams = append(sslParams, fmt.Sprintf("SSLMODE=%s", ssl.Mode))
+	}
+	if ssl.Secure {
+		sslParams = append(sslParams, "SSL=1")
+	}
+	if ssl.Cert != "" {
+		sslParams = append(sslParams, fmt.Sprintf("SSLCERT=%s", ssl.Cert))
+	}
+	if ssl.Key != "" {
+		sslParams = append(sslParams, fmt.Sprintf("SSLKEY=%s", ssl.Key))
+	}
+	if ssl.RootCert != "" {
+		sslParams = append(sslParams, fmt.Sprintf("SSLROOTCERT=%s", ssl.RootCert))
+	}
+	if ssl.KeyPassword != "" {
+		sslParams = append(sslParams, fmt.Sprintf("SSLKEYPASSWORD=%s", ssl.KeyPassword))
+	}
+	if ssl.CipherSuites != "" {
+		sslParams = append(sslParams, fmt.Sprintf("SSLCIPHERSUITE=%s", ssl.CipherSuites))
+	}
+	if ssl.Version != "" {
+		sslParams = append(sslParams, fmt.Sprintf("SSLVERSION=%s", ssl.Version))
+	}
+
+	if len(sslParams) == 0 {
+		return baseConnString
+	}
+
+	if strings.TrimSpace(baseConnString) == "" {
+		return strings.Join(sslParams, ";")
+	}
+
+	return baseConnString + ";" + strings.Join(sslParams, ";")
+}
+
 func Connect(connString string) (*Connection, error) {
 	db, err := sql.Open("odbc", connString)
 	if err != nil {
