@@ -230,6 +230,16 @@ func AppendSessionTimeout(baseConnString string, sessionTimeout int) string {
 	return baseConnString + fmt.Sprintf(";SESSIONTIMEOUT=%d", sessionTimeout)
 }
 
+func AppendTimeZone(baseConnString string, timeZone string) string {
+	if timeZone == "" {
+		return baseConnString
+	}
+	if strings.TrimSpace(baseConnString) == "" {
+		return fmt.Sprintf("TIMEZONE=%s", timeZone)
+	}
+	return baseConnString + fmt.Sprintf(";TIMEZONE=%s", timeZone)
+}
+
 func Connect(connString string) (*Connection, error) {
 	return ConnectWithRetry(connString, nil)
 }

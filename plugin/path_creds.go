@@ -667,6 +667,7 @@ func buildRetryConfig(cfg *models.Config) *retry.Config {
 func buildConnectionString(cfg *models.Config) (string, error) {
 	if cfg.ConnectionString != "" {
 		connStr := teradb.AppendSessionTimeout(cfg.ConnectionString, cfg.SessionTimeout)
+		connStr = teradb.AppendTimeZone(connStr, cfg.TimeZone)
 		return teradb.AppendQueryTimeout(connStr, cfg.QueryTimeout), nil
 	}
 
@@ -684,6 +685,7 @@ func buildConnectionString(cfg *models.Config) (string, error) {
 			return "", err
 		}
 		connStr = teradb.AppendSessionTimeout(connStr, cfg.SessionTimeout)
+		connStr = teradb.AppendTimeZone(connStr, cfg.TimeZone)
 		return teradb.AppendQueryTimeout(connStr, cfg.QueryTimeout), nil
 	}
 
