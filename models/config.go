@@ -28,6 +28,7 @@ type Role struct {
 	Account             string `json:"account"`
 	Fallback            bool   `json:"fallback"`
 	BatchSize           int    `json:"batch_size"`
+	MaxCredentials      int    `json:"max_credentials"`
 }
 
 type Statement struct {
