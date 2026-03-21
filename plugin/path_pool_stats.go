@@ -52,6 +52,7 @@ func (b *Backend) pathPoolStatsRead(ctx context.Context, req *logical.Request, d
 			"active":            openConns - idleConns,
 			"idle":              idleConns,
 			"total":             openConns,
+			"min":               cfg.MinConnections,
 			"state":             stateToString(state),
 			"last_health_check": nil,
 			"error":             nil,

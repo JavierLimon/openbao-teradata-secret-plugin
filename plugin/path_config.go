@@ -26,6 +26,11 @@ func (b *Backend) pathConfig() *framework.Path {
 				Description: "ODBC connection string for Teradata",
 				Required:    true,
 			},
+			"min_connections": {
+				Type:        framework.TypeInt,
+				Description: "Minimum number of connections to maintain in the pool",
+				Default:     0,
+			},
 			"max_open_connections": {
 				Type:        framework.TypeInt,
 				Description: "Maximum number of open connections",
@@ -71,13 +76,25 @@ func (b *Backend) pathConfigWrite(ctx context.Context, req *logical.Request, dat
 		return nil, fmt.Errorf("invalid connection string: %w", err)
 	}
 
+	minConnections := data.Get("min_connections").(int)
 	maxOpenConnections := data.Get("max_open_connections").(int)
 	maxIdleConnections := data.Get("max_idle_connections").(int)
 	connectionTimeout := data.Get("connection_timeout").(int)
 
+	if minConnections < 0 {
+		return nil, fmt.Errorf("min_connections cannot be negative")
+	}
+	if maxOpenConnections < minConnections {
+		return nil, fmt.Errorf("max_open_connections must be >= min_connections")
+	}
+	if maxIdleConnections > maxOpenConnections {
+		return nil, fmt.Errorf("max_idle_connections cannot exceed max_open_connections")
+	}
+
 	cfg := &models.Config{
 		Region:             region,
 		ConnectionString:   connectionString,
+		MinConnections:     minConnections,
 		MaxOpenConnections: maxOpenConnections,
 		MaxIdleConnections: maxIdleConnections,
 		ConnectionTimeout:  connectionTimeout,
@@ -99,6 +116,7 @@ func (b *Backend) pathConfigWrite(ctx context.Context, req *logical.Request, dat
 
 	respData := map[string]interface{}{
 		"connection_string":    "***",
+		"min_connections":      minConnections,
 		"max_open_connections": maxOpenConnections,
 		"max_idle_connections": maxIdleConnections,
 		"connection_timeout":   connectionTimeout,
@@ -139,6 +157,7 @@ func (b *Backend) pathConfigRead(ctx context.Context, req *logical.Request, data
 
 	respData := map[string]interface{}{
 		"connection_string":    "***",
+		"min_connections":      cfg.MinConnections,
 		"max_open_connections": cfg.MaxOpenConnections,
 		"max_idle_connections": cfg.MaxIdleConnections,
 		"connection_timeout":   cfg.ConnectionTimeout,

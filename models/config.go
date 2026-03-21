@@ -3,6 +3,7 @@ package models
 type Config struct {
 	Region             string `json:"region"`
 	ConnectionString   string `json:"connection_string"`
+	MinConnections     int    `json:"min_connections"`
 	MaxOpenConnections int    `json:"max_open_connections"`
 	MaxIdleConnections int    `json:"max_idle_connections"`
 	ConnectionTimeout  int    `json:"connection_timeout"`
