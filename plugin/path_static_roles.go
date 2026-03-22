@@ -176,7 +176,7 @@ func (b *Backend) pathStaticRoleCreate(ctx context.Context, req *logical.Request
 	if existingCred == nil {
 		password := generatePassword()
 
-		createSQL := fmt.Sprintf("MODIFY USER %s AS PASSWORD = %s", username, password)
+		createSQL := fmt.Sprintf("MODIFY USER %s AS PASSWORD = '%s'", username, password)
 		_, err = executeSQL(ctx, cfg, createSQL)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create initial password for static user: %w", err)
@@ -373,7 +373,7 @@ func (b *Backend) pathRotateStaticRoleHandler(ctx context.Context, req *logical.
 
 	password := generatePassword()
 
-	updateSQL := fmt.Sprintf("MODIFY USER %s AS PASSWORD = %s", staticRole.Username, password)
+	updateSQL := fmt.Sprintf("MODIFY USER %s AS PASSWORD = '%s'", staticRole.Username, password)
 	_, err = executeSQL(ctx, cfg, updateSQL)
 	if err != nil {
 		return nil, fmt.Errorf("failed to rotate password: %w", err)

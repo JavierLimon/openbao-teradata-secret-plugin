@@ -572,35 +572,13 @@ func (b *Backend) generatePasswordWithPolicy(ctx context.Context, policy string)
 }
 
 func buildTeradataCreateUserSQL(role *models.Role, username, password string) string {
-	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("CREATE USER %s FROM DBC AS ", username))
-	sb.WriteString(fmt.Sprintf("PASSWORD = '%s' ", password))
+	query := fmt.Sprintf("CREATE USER %s FROM DBC AS PASSWORD = \"%s\" DEFAULT DATABASE = %s PERM = 1000000",
+		username, password, username)
+	return query
+}
 
-	if role.DefaultDatabase != "" {
-		sb.WriteString(fmt.Sprintf("DEFAULT DATABASE = %s ", role.DefaultDatabase))
-	} else {
-		sb.WriteString(fmt.Sprintf("DEFAULT DATABASE = %s ", username))
-	}
-
-	if role.PermSpace > 0 {
-		sb.WriteString(fmt.Sprintf("PERM = %d ", role.PermSpace))
-	} else {
-		sb.WriteString("PERM = 1000000 ")
-	}
-
-	if role.SpoolSpace > 0 {
-		sb.WriteString(fmt.Sprintf("SPOOL = %d ", role.SpoolSpace))
-	}
-
-	if role.Account != "" {
-		sb.WriteString(fmt.Sprintf("ACCOUNT = '%s' ", role.Account))
-	}
-
-	if role.Fallback {
-		sb.WriteString("FALLBACK ")
-	}
-
-	return strings.TrimSpace(sb.String())
+func escapeSQLString(s string) string {
+	return strings.ReplaceAll(s, "'", "''")
 }
 
 const (
@@ -609,7 +587,7 @@ const (
 	lowerChars        = "abcdefghijklmnopqrstuvwxyz"
 	upperChars        = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 	digitChars        = "0123456789"
-	specialChars      = "!@#$%^&*()_+-=[]{}|;:,.<>?"
+	specialChars      = "!@"
 	allPasswordChars  = lowerChars + upperChars + digitChars + specialChars
 )
 
