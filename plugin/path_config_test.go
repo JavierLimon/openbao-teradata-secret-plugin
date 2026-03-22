@@ -1,6 +1,3 @@
-//go:build skip
-// +build skip
-
 package teradata
 
 import (
@@ -13,7 +10,6 @@ import (
 )
 
 func TestPathConfigWrite(t *testing.T) {
-	t.Skip("Skipping - test needs update for new config API")
 	t.Parallel()
 
 	tests := []struct {
@@ -37,11 +33,15 @@ func TestPathConfigWrite(t *testing.T) {
 				if resp == nil {
 					t.Fatal("response is nil")
 				}
-				if resp.Data["connection_string"] != "***" {
-					t.Errorf("expected connection_string to be masked, got %v", resp.Data["connection_string"])
+				connDetails, ok := resp.Data["connection_details"].(map[string]interface{})
+				if !ok {
+					t.Fatal("connection_details is not a map")
 				}
-				if resp.Data["max_open_connections"] != 10 {
-					t.Errorf("expected max_open_connections 10, got %v", resp.Data["max_open_connections"])
+				if connDetails["connection_string"] != "***" {
+					t.Errorf("expected connection_string to be masked, got %v", connDetails["connection_string"])
+				}
+				if connDetails["max_open_connections"] != 10 {
+					t.Errorf("expected max_open_connections 10, got %v", connDetails["max_open_connections"])
 				}
 			},
 		},
@@ -57,7 +57,7 @@ func TestPathConfigWrite(t *testing.T) {
 			name:             "empty connection string",
 			connectionString: "",
 			wantErr:          true,
-			errContains:      "connection string cannot be empty",
+			errContains:      "connection_string or connection_url is required",
 		},
 		{
 			name:             "whitespace connection string",
@@ -188,7 +188,7 @@ func TestPathConfigRead(t *testing.T) {
 					"max_idle_connections": 2,
 					"connection_timeout":   30,
 				}
-				entry, err := logical.StorageEntryJSON("config", cfg)
+				entry, err := logical.StorageEntryJSON("config/test", cfg)
 				if err != nil {
 					return err
 				}
@@ -199,11 +199,15 @@ func TestPathConfigRead(t *testing.T) {
 				if resp == nil {
 					t.Fatal("response is nil")
 				}
-				if resp.Data["connection_string"] != "***" {
-					t.Errorf("expected connection_string masked, got %v", resp.Data["connection_string"])
+				connDetails, ok := resp.Data["connection_details"].(map[string]interface{})
+				if !ok {
+					t.Fatal("connection_details is not a map")
 				}
-				if resp.Data["max_open_connections"] != 5 {
-					t.Errorf("expected max_open_connections 5, got %v", resp.Data["max_open_connections"])
+				if connDetails["connection_string"] != "***" {
+					t.Errorf("expected connection_string masked, got %v", connDetails["connection_string"])
+				}
+				if connDetails["max_open_connections"] != 5 {
+					t.Errorf("expected max_open_connections 5, got %v", connDetails["max_open_connections"])
 				}
 			},
 		},
@@ -233,7 +237,7 @@ func TestPathConfigRead(t *testing.T) {
 			}
 
 			data := &framework.FieldData{
-				Raw:    map[string]interface{}{},
+				Raw:    map[string]interface{}{"name": "test"},
 				Schema: getConfigFieldSchema(),
 			}
 
@@ -272,7 +276,7 @@ func TestPathConfigDelete(t *testing.T) {
 				cfg := map[string]interface{}{
 					"connection_string": "DSN=teradata",
 				}
-				entry, err := logical.StorageEntryJSON("config", cfg)
+				entry, err := logical.StorageEntryJSON("config/test", cfg)
 				if err != nil {
 					return err
 				}
@@ -305,7 +309,7 @@ func TestPathConfigDelete(t *testing.T) {
 			}
 
 			data := &framework.FieldData{
-				Raw:    map[string]interface{}{},
+				Raw:    map[string]interface{}{"name": "test"},
 				Schema: getConfigFieldSchema(),
 			}
 
