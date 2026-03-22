@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -220,11 +221,12 @@ func (c *DBConnection) cleanupIdleConnections() {
 			c.Database.Close()
 			evicted++
 			metrics.PoolIdleClosedTotal.WithLabelValues(c.Config.Name).Inc()
-			logging.LogConnectionEvent(nil, "idle_connection_closed", c.Config.Name, map[string]interface{}{
-				"eviction_policy": c.Config.EvictionPolicy,
-				"idle_duration":   idleDuration,
-				"batch_position":  i,
-			})
+			logging.LogOperation(nil, "pool", "idle_connection_closed",
+				slog.String("pool_name", c.Config.Name),
+				slog.String("eviction_policy", string(c.Config.EvictionPolicy)),
+				slog.Duration("idle_duration", idleDuration),
+				slog.Int("batch_position", i),
+			)
 		}
 	}
 

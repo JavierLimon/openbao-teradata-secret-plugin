@@ -2,188 +2,111 @@ package logging
 
 import (
 	"context"
-	"fmt"
+	"io"
 	"log/slog"
 	"os"
-	"strconv"
 	"strings"
 	"time"
 )
 
 const (
-	LevelTrace = slog.Level(-8)
-	LevelDebug = slog.LevelDebug
-	LevelInfo  = slog.LevelInfo
-	LevelWarn  = slog.LevelWarn
-	LevelError = slog.LevelError
+	LevelTrace slog.Level = -8
 )
 
-const (
-	EnvLogLevel  = "TERADATA_PLUGIN_LOG_LEVEL"
-	EnvLogFormat = "TERADATA_PLUGIN_LOG_FORMAT"
-	EnvService   = "TERADATA_PLUGIN_SERVICE"
+var (
+	defaultLogger   *slog.Logger
+	globalConfig    *Config
+	componentLevels = make(map[string]slog.Level)
 )
-
-const (
-	FormatJSON    = "json"
-	FormatConsole = "console"
-)
-
-var defaultLogger *slog.Logger
-var logLevel = LevelInfo
-var logFormat = FormatJSON
-var serviceName = "teradata-secret-plugin"
 
 type contextKey string
 
 const loggerKey contextKey = "logger"
 
-type LogLevel string
-
-const (
-	LogLevelTrace LogLevel = "trace"
-	LogLevelDebug LogLevel = "debug"
-	LogLevelInfo  LogLevel = "info"
-	LogLevelWarn  LogLevel = "warn"
-	LogLevelError LogLevel = "error"
-)
-
-type LoggerConfig struct {
-	Level      string
-	Format     string
-	Service    string
-	TimeFormat string
+type componentHandler struct {
+	slog.Handler
+	component string
 }
 
-func Init(opts ...Option) {
-	config := &LoggerConfig{
-		Level:      getEnvOrDefault(EnvLogLevel, "info"),
-		Format:     getEnvOrDefault(EnvLogFormat, FormatJSON),
-		Service:    getEnvOrDefault(EnvService, serviceName),
-		TimeFormat: time.RFC3339,
+func (h *componentHandler) Handle(ctx context.Context, r slog.Record) error {
+	if globalConfig != nil && !globalConfig.IsComponentEnabled(h.component) {
+		return nil
+	}
+	r.AddAttrs(slog.String("component", h.component))
+	return h.Handler.Handle(ctx, r)
+}
+
+func Init(cfg *Config) {
+	if cfg == nil {
+		defaultCfg := DefaultConfig()
+		cfg = &defaultCfg
+	}
+	globalConfig = cfg
+
+	var logLevel slog.Level
+	switch strings.ToLower(string(cfg.Level)) {
+	case string(LogLevelTrace):
+		logLevel = LevelTrace
+	case string(LogLevelDebug):
+		logLevel = slog.LevelDebug
+	case string(LogLevelWarn):
+		logLevel = slog.LevelWarn
+	case string(LogLevelError):
+		logLevel = slog.LevelError
+	default:
+		logLevel = slog.LevelInfo
 	}
 
-	for _, opt := range opts {
-		opt(config)
-	}
-
-	logLevel = parseLogLevel(config.Level)
-	logFormat = config.Format
-	serviceName = config.Service
-
-	levelVal := &slog.LevelVar{}
-	levelVal.Set(logLevel)
-
-	optsStruct := &slog.HandlerOptions{
-		Level:     levelVal,
-		AddSource: logLevel == LevelTrace,
-		ReplaceAttr: func(groups []string, a slog.Attr) slog.Attr {
-			if a.Key == slog.TimeKey && config.TimeFormat != "" {
-				if t, ok := a.Value.Any().(time.Time); ok {
-					a.Value = slog.StringValue(t.Format(config.TimeFormat))
-				}
-			}
-			if a.Key == slog.LevelKey {
-				switch a.Value.Any().(slog.Level) {
-				case LevelTrace:
-					a.Value = slog.StringValue("TRACE")
-				case LevelDebug:
-					a.Value = slog.StringValue("DEBUG")
-				case LevelInfo:
-					a.Value = slog.StringValue("INFO")
-				case LevelWarn:
-					a.Value = slog.StringValue("WARN")
-				case LevelError:
-					a.Value = slog.StringValue("ERROR")
-				}
-			}
-			return a
-		},
+	opts := &slog.HandlerOptions{
+		Level: logLevel,
 	}
 
 	var handler slog.Handler
-	if config.Format == FormatConsole {
-		handler = slog.NewTextHandler(os.Stdout, optsStruct)
+	if cfg.Format == LogFormatPretty {
+		handler = slog.NewTextHandler(os.Stdout, opts)
 	} else {
-		handler = slog.NewJSONHandler(os.Stdout, optsStruct)
+		handler = slog.NewJSONHandler(os.Stdout, opts)
 	}
 
 	defaultLogger = slog.New(handler)
-	defaultLogger = defaultLogger.With(
-		slog.String("service", serviceName),
-	)
 	slog.SetDefault(defaultLogger)
 }
 
-type Option func(*LoggerConfig)
-
-func WithLevel(level string) Option {
-	return func(c *LoggerConfig) {
-		c.Level = level
-	}
+func InitWithFormat(level string, format LogFormat) {
+	Init(&Config{
+		Format: format,
+		Level:  LogLevel(level),
+	})
 }
 
-func WithFormat(format string) Option {
-	return func(c *LoggerConfig) {
-		c.Format = format
-	}
-}
-
-func WithService(service string) Option {
-	return func(c *LoggerConfig) {
-		c.Service = service
-	}
-}
-
-func WithTimeFormat(format string) Option {
-	return func(c *LoggerConfig) {
-		c.TimeFormat = format
-	}
-}
-
-func parseLogLevel(level string) slog.Level {
-	switch strings.ToLower(level) {
-	case "trace":
-		return LevelTrace
-	case "debug":
-		return LevelDebug
-	case "warn", "warning":
-		return LevelWarn
-	case "error":
-		return LevelError
-	case "info":
-		return LevelInfo
+func SetComponentLevel(component string, level LogLevel) {
+	var lvl slog.Level
+	switch strings.ToLower(string(level)) {
+	case string(LogLevelTrace):
+		lvl = LevelTrace
+	case string(LogLevelDebug):
+		lvl = slog.LevelDebug
+	case string(LogLevelWarn):
+		lvl = slog.LevelWarn
+	case string(LogLevelError):
+		lvl = slog.LevelError
 	default:
-		return LevelInfo
+		lvl = slog.LevelInfo
 	}
+	componentLevels[strings.ToLower(component)] = lvl
 }
 
-func getEnvOrDefault(env, defaultVal string) string {
-	if val := os.Getenv(env); val != "" {
-		return val
+func GetConfig() *Config {
+	if globalConfig == nil {
+		defaultCfg := DefaultConfig()
+		return &defaultCfg
 	}
-	return defaultVal
-}
-
-func GetLevel() slog.Level {
-	return logLevel
-}
-
-func GetFormat() string {
-	return logFormat
-}
-
-func GetService() string {
-	return serviceName
-}
-
-func SetLevel(level string) {
-	logLevel = parseLogLevel(level)
+	return globalConfig
 }
 
 func Default() *slog.Logger {
 	if defaultLogger == nil {
-		Init()
+		Init(nil)
 	}
 	return defaultLogger
 }
@@ -199,6 +122,25 @@ func WithContext(ctx context.Context, logger *slog.Logger) context.Context {
 	return context.WithValue(ctx, loggerKey, logger)
 }
 
+func WithComponent(ctx context.Context, component string) context.Context {
+	logger := FromContext(ctx)
+	cfg := GetConfig()
+	if !cfg.IsComponentEnabled(component) {
+		return ctx
+	}
+
+	componentLogger := logger.With(
+		slog.String("component", component),
+	)
+	return context.WithValue(ctx, loggerKey, componentLogger)
+}
+
+func WithFields(ctx context.Context, fields ...any) context.Context {
+	logger := FromContext(ctx)
+	componentLogger := logger.With(fields...)
+	return context.WithValue(ctx, loggerKey, componentLogger)
+}
+
 type HealthCheckResult struct {
 	ConnectionName string        `json:"connection_name"`
 	State          string        `json:"state"`
@@ -211,24 +153,13 @@ func (h *HealthCheckResult) Log(logger *slog.Logger) {
 	if logger == nil {
 		logger = Default()
 	}
-
-	attrs := []any{
+	logger.Info("health_check_result",
 		slog.String("connection_name", h.ConnectionName),
 		slog.String("state", h.State),
 		slog.Duration("latency", h.Latency),
 		slog.String("error", h.Error),
 		slog.Time("timestamp", h.Timestamp),
-		slog.String("component", "health_check"),
-	}
-
-	switch h.State {
-	case "healthy":
-		logger.Info("health_check_result", attrs...)
-	case "unhealthy", "closed":
-		logger.Error("health_check_result", attrs...)
-	default:
-		logger.Warn("health_check_result", attrs...)
-	}
+	)
 }
 
 func LogHealthCheck(logger *slog.Logger, connName string, state string, latency time.Duration, err error) {
@@ -236,27 +167,21 @@ func LogHealthCheck(logger *slog.Logger, connName string, state string, latency 
 		logger = Default()
 	}
 
-	attrs := []any{
-		slog.String("connection_name", connName),
-		slog.String("state", state),
-		slog.Duration("latency", latency),
-		slog.Time("timestamp", time.Now()),
-		slog.String("component", "health_check"),
-	}
-
 	if err != nil {
-		attrs = append(attrs, slog.String("error", err.Error()))
-		logger.Error("health_check", attrs...)
-		return
-	}
-
-	switch state {
-	case "healthy":
-		logger.Info("health_check", attrs...)
-	case "unhealthy", "closed":
-		logger.Warn("health_check", attrs...)
-	default:
-		logger.Debug("health_check", attrs...)
+		logger.Info("health_check",
+			slog.String("connection_name", connName),
+			slog.String("state", state),
+			slog.Duration("latency", latency),
+			slog.Time("timestamp", time.Now()),
+			slog.String("error", err.Error()),
+		)
+	} else {
+		logger.Info("health_check",
+			slog.String("connection_name", connName),
+			slog.String("state", state),
+			slog.Duration("latency", latency),
+			slog.Time("timestamp", time.Now()),
+		)
 	}
 }
 
@@ -269,24 +194,13 @@ func LogConnectionEvent(logger *slog.Logger, event string, connName string, deta
 		slog.String("event", event),
 		slog.String("connection_name", connName),
 		slog.Time("timestamp", time.Now()),
-		slog.String("component", "connection"),
 	}
 
 	for k, v := range details {
 		args = append(args, slog.Any(k, v))
 	}
 
-	switch event {
-	case "prewarm_pool_error", "prewarm_config_load_error", "prewarm_config_decode_error",
-		"connection_failed", "connection_error", "pool_error":
-		logger.Error("connection_event", args...)
-	case "idle_connection_closed", "connection_removed", "connection_closed":
-		logger.Warn("connection_event", args...)
-	case "pool_prewarmed", "connection_added", "connection_updated", "pool_warmup_started", "pool_warmup_completed":
-		logger.Info("connection_event", args...)
-	default:
-		logger.Debug("connection_event", args...)
-	}
+	logger.Info("connection_event", args...)
 }
 
 func LogPoolStats(logger *slog.Logger, connName string, openConns int, idleConns int, inUse int) {
@@ -300,177 +214,139 @@ func LogPoolStats(logger *slog.Logger, connName string, openConns int, idleConns
 		slog.Int("idle_connections", idleConns),
 		slog.Int("in_use_connections", inUse),
 		slog.Time("timestamp", time.Now()),
-		slog.String("component", "pool"),
 	)
 }
 
-func LogCredentialEvent(logger *slog.Logger, event string, username string, roleName string, details map[string]any) {
+func LogOperation(logger *slog.Logger, component, operation string, fields ...any) {
 	if logger == nil {
 		logger = Default()
 	}
 
 	args := []any{
-		slog.String("event", event),
+		slog.String("component", component),
+		slog.String("operation", operation),
+		slog.Time("timestamp", time.Now()),
+	}
+	args = append(args, fields...)
+
+	logger.Info("operation", args...)
+}
+
+func LogCredentialOperation(logger *slog.Logger, component, operation, role, username string, fields ...any) {
+	if logger == nil {
+		logger = Default()
+	}
+
+	args := []any{
+		slog.String("component", component),
+		slog.String("operation", operation),
+		slog.String("role", role),
 		slog.String("username", username),
-		slog.String("role_name", roleName),
 		slog.Time("timestamp", time.Now()),
-		slog.String("component", "credential"),
 	}
+	args = append(args, fields...)
 
-	for k, v := range details {
-		args = append(args, slog.Any(k, v))
-	}
-
-	switch event {
-	case "credential_created", "credential_renewed":
-		logger.Info("credential_event", args...)
-	case "credential_revoked", "credential_expired":
-		logger.Info("credential_event", args...)
-	case "credential_error", "credential_creation_failed", "credential_revocation_failed":
-		logger.Error("credential_event", args...)
-	default:
-		logger.Debug("credential_event", args...)
-	}
+	logger.Info("credential_operation", args...)
 }
 
-func LogRoleEvent(logger *slog.Logger, event string, roleName string, details map[string]any) {
+func LogDatabaseOperation(logger *slog.Logger, component, operation, database string, fields ...any) {
 	if logger == nil {
 		logger = Default()
 	}
 
 	args := []any{
-		slog.String("event", event),
-		slog.String("role_name", roleName),
+		slog.String("component", component),
+		slog.String("operation", operation),
+		slog.String("database", database),
 		slog.Time("timestamp", time.Now()),
-		slog.String("component", "role"),
 	}
+	args = append(args, fields...)
 
-	for k, v := range details {
-		args = append(args, slog.Any(k, v))
-	}
-
-	switch event {
-	case "role_created", "role_updated":
-		logger.Info("role_event", args...)
-	case "role_deleted":
-		logger.Info("role_event", args...)
-	case "role_error", "role_creation_failed":
-		logger.Error("role_event", args...)
-	default:
-		logger.Debug("role_event", args...)
-	}
+	logger.Info("database_operation", args...)
 }
 
-func LogConfigEvent(logger *slog.Logger, event string, region string, details map[string]any) {
+func LogError(logger *slog.Logger, component, operation string, err error, fields ...any) {
 	if logger == nil {
 		logger = Default()
 	}
 
 	args := []any{
-		slog.String("event", event),
-		slog.String("region", region),
-		slog.Time("timestamp", time.Now()),
-		slog.String("component", "config"),
-	}
-
-	for k, v := range details {
-		args = append(args, slog.Any(k, v))
-	}
-
-	switch event {
-	case "config_created", "config_updated":
-		logger.Info("config_event", args...)
-	case "config_deleted":
-		logger.Info("config_event", args...)
-	case "config_error", "config_validation_failed":
-		logger.Error("config_event", args...)
-	default:
-		logger.Debug("config_event", args...)
-	}
-}
-
-func LogStartup(logger *slog.Logger, version string) {
-	if logger == nil {
-		logger = Default()
-	}
-	logger.Info("plugin_startup",
-		slog.String("version", version),
-		slog.String("service", serviceName),
-		slog.String("log_level", logLevel.String()),
-		slog.String("log_format", logFormat),
-		slog.Time("timestamp", time.Now()),
-		slog.String("component", "startup"),
-	)
-}
-
-func LogShutdown(logger *slog.Logger) {
-	if logger == nil {
-		logger = Default()
-	}
-	logger.Info("plugin_shutdown",
-		slog.String("service", serviceName),
-		slog.Time("timestamp", time.Now()),
-		slog.String("component", "shutdown"),
-	)
-}
-
-func LogError(logger *slog.Logger, msg string, err error, details map[string]any) {
-	if logger == nil {
-		logger = Default()
-	}
-
-	args := []any{
+		slog.String("component", component),
+		slog.String("operation", operation),
 		slog.String("error", err.Error()),
 		slog.Time("timestamp", time.Now()),
 	}
+	args = append(args, fields...)
 
-	for k, v := range details {
-		args = append(args, slog.Any(k, v))
-	}
-
-	logger.Error(msg, args...)
+	logger.Error("error", args...)
 }
 
-func SetLevelFromEnv() {
-	if val := os.Getenv(EnvLogLevel); val != "" {
-		SetLevel(val)
+func LogDebug(logger *slog.Logger, component, operation string, fields ...any) {
+	if logger == nil {
+		logger = Default()
 	}
+
+	args := []any{
+		slog.String("component", component),
+		slog.String("operation", operation),
+		slog.Time("timestamp", time.Now()),
+	}
+	args = append(args, fields...)
+
+	logger.Debug("debug", args...)
 }
 
-func SetFormatFromEnv() {
-	if val := os.Getenv(EnvLogFormat); val != "" {
-		if val == FormatConsole || val == FormatJSON {
-			logFormat = val
-		}
+func LogTrace(logger *slog.Logger, component, operation string, fields ...any) {
+	if logger == nil {
+		logger = Default()
 	}
+
+	args := []any{
+		slog.String("component", component),
+		slog.String("operation", operation),
+		slog.Time("timestamp", time.Now()),
+	}
+	args = append(args, fields...)
+
+	logger.Log(context.Background(), LevelTrace, "trace", args...)
 }
 
-func SetServiceFromEnv() {
-	if val := os.Getenv(EnvService); val != "" {
-		serviceName = val
-	}
-}
-
-func UpdateLogLevel(levelStr string) error {
-	parsedLevel, err := strconv.Atoi(levelStr)
-	if err != nil {
-		SetLevel(levelStr)
-		return nil
-	}
-
-	switch parsedLevel {
-	case int(LevelTrace):
-		SetLevel("trace")
-	case int(LevelDebug):
-		SetLevel("debug")
-	case int(LevelInfo):
-		SetLevel("info")
-	case int(LevelWarn):
-		SetLevel("warn")
-	case int(LevelError):
-		SetLevel("error")
+func NewJSONLogger(w io.Writer, level string) *slog.Logger {
+	var logLevel slog.Level
+	switch strings.ToLower(level) {
+	case "debug":
+		logLevel = slog.LevelDebug
+	case "warn":
+		logLevel = slog.LevelWarn
+	case "error":
+		logLevel = slog.LevelError
+	case "trace":
+		logLevel = LevelTrace
 	default:
-		return fmt.Errorf("invalid log level: %d", parsedLevel)
+		logLevel = slog.LevelInfo
 	}
-	return nil
+
+	opts := &slog.HandlerOptions{Level: logLevel}
+	handler := slog.NewJSONHandler(w, opts)
+	return slog.New(handler)
+}
+
+func NewPrettyLogger(w io.Writer, level string) *slog.Logger {
+	var logLevel slog.Level
+	switch strings.ToLower(level) {
+	case "debug":
+		logLevel = slog.LevelDebug
+	case "warn":
+		logLevel = slog.LevelWarn
+	case "error":
+		logLevel = slog.LevelError
+	case "trace":
+		logLevel = LevelTrace
+	default:
+		logLevel = slog.LevelInfo
+	}
+
+	opts := &slog.HandlerOptions{Level: logLevel}
+	handler := slog.NewTextHandler(w, opts)
+	return slog.New(handler)
 }
