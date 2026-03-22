@@ -1,6 +1,8 @@
 package logging
 
 import (
+	"fmt"
+	"os"
 	"strings"
 )
 
@@ -14,71 +16,118 @@ const (
 type LogLevel string
 
 const (
-	LogLevelTrace LogLevel = "trace"
 	LogLevelDebug LogLevel = "debug"
 	LogLevelInfo  LogLevel = "info"
 	LogLevelWarn  LogLevel = "warn"
 	LogLevelError LogLevel = "error"
+	LogLevelTrace LogLevel = "trace"
 )
 
 type Config struct {
-	Format     LogFormat `json:"format" env:"LOG_FORMAT"`
-	Level      LogLevel  `json:"level" env:"LOG_LEVEL"`
-	Components []string  `json:"components,omitempty" env:"LOG_COMPONENTS"`
-}
-
-func DefaultConfig() Config {
-	return Config{
-		Format: LogFormatJSON,
-		Level:  LogLevelInfo,
-	}
+	LogFormat     LogFormat `json:"log_format"`
+	LogLevel      LogLevel  `json:"log_level"`
+	LogComponents []string  `json:"log_components"`
 }
 
 func (c *Config) Validate() error {
-	switch strings.ToLower(string(c.Format)) {
-	case string(LogFormatJSON), string(LogFormatPretty), "":
-		c.Format = LogFormatJSON
+	switch c.LogFormat {
+	case LogFormatJSON, LogFormatPretty, "":
 	default:
-		c.Format = LogFormatJSON
+		return fmt.Errorf("invalid log_format: %s (must be 'json' or 'pretty')", c.LogFormat)
 	}
 
-	switch strings.ToLower(string(c.Level)) {
-	case string(LogLevelTrace), string(LogLevelDebug), string(LogLevelInfo),
-		string(LogLevelWarn), string(LogLevelError), "":
-		if c.Level == "" {
-			c.Level = LogLevelInfo
-		}
+	switch c.LogLevel {
+	case LogLevelDebug, LogLevelInfo, LogLevelWarn, LogLevelError, LogLevelTrace, "":
 	default:
-		c.Level = LogLevelInfo
+		return fmt.Errorf("invalid log_level: %s (must be 'debug', 'info', 'warn', 'error', or 'trace')", c.LogLevel)
 	}
 
 	return nil
 }
 
+func (c *Config) SetDefaults() {
+	if c.LogFormat == "" {
+		c.LogFormat = LogFormatJSON
+	}
+	if c.LogLevel == "" {
+		c.LogLevel = LogLevelInfo
+	}
+	if c.LogComponents == nil {
+		c.LogComponents = []string{}
+	}
+}
+
 func (c *Config) IsComponentEnabled(component string) bool {
-	if len(c.Components) == 0 {
+	if len(c.LogComponents) == 0 {
 		return true
 	}
-
 	component = strings.ToLower(component)
-	for _, comp := range c.Components {
-		if strings.ToLower(comp) == component {
+	for _, c := range c.LogComponents {
+		if strings.ToLower(c) == component {
 			return true
 		}
 	}
 	return false
 }
 
-func ParseConfig(format, level string, components []string) (*Config, error) {
-	cfg := &Config{
-		Format:     LogFormat(format),
-		Level:      LogLevel(level),
-		Components: components,
+func DefaultConfig() *Config {
+	return &Config{
+		LogFormat:     LogFormatJSON,
+		LogLevel:      LogLevelInfo,
+		LogComponents: []string{},
+	}
+}
+
+func ConfigFromEnv() *Config {
+	cfg := DefaultConfig()
+
+	if format := os.Getenv("LOG_FORMAT"); format != "" {
+		cfg.LogFormat = LogFormat(format)
+	}
+	if level := os.Getenv("LOG_LEVEL"); level != "" {
+		cfg.LogLevel = LogLevel(level)
+	}
+	if components := os.Getenv("LOG_COMPONENTS"); components != "" {
+		cfg.LogComponents = strings.Split(components, ",")
+		for i, c := range cfg.LogComponents {
+			cfg.LogComponents[i] = strings.TrimSpace(c)
+		}
 	}
 
-	if err := cfg.Validate(); err != nil {
-		return nil, err
-	}
+	cfg.SetDefaults()
+	return cfg
+}
 
-	return cfg, nil
+func ParseLogLevel(level string) (LogLevel, error) {
+	switch strings.ToLower(level) {
+	case "debug":
+		return LogLevelDebug, nil
+	case "info":
+		return LogLevelInfo, nil
+	case "warn", "warning":
+		return LogLevelWarn, nil
+	case "error":
+		return LogLevelError, nil
+	case "trace":
+		return LogLevelTrace, nil
+	default:
+		return LogLevelInfo, fmt.Errorf("unknown log level: %s", level)
+	}
+}
+
+func (l LogLevel) ToSlogLevel() int {
+	switch l {
+	case LogLevelTrace:
+		return -8
+	case LogLevelDebug:
+		return -4
+	case LogLevelInfo:
+		return 0
+	case LogLevelWarn:
+		return 4
+	case LogLevelError:
+		return 8
+	default:
+		return 0
+	}
 }
