@@ -13,8 +13,6 @@ import (
 	"time"
 
 	"github.com/JavierLimon/openbao-teradata-secret-plugin/tracing"
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/codes"
 )
 
 var (
@@ -279,7 +277,7 @@ func ConnectWithRetry(connString string, cfg *ConnectConfig) (*Connection, error
 	ctx := context.Background()
 	ctx, span := tracing.StartSpan(ctx, "odbc_connect")
 	span.SetAttributes(
-		attribute.String("connection.conn_string_length", fmt.Sprintf("%d", len(connString))),
+		tracing.String("connection.conn_string_length", fmt.Sprintf("%d", len(connString))),
 	)
 	defer func() {
 		span.End()
@@ -303,7 +301,7 @@ func ConnectWithRetry(connString string, cfg *ConnectConfig) (*Connection, error
 
 	var lastErr error
 	for attempt := 1; attempt <= cfg.MaxRetries; attempt++ {
-		span.SetAttributes(attribute.Int("connection.attempt", attempt))
+		span.SetAttributes(tracing.Int("connection.attempt", attempt))
 
 		db, err := sql.Open("odbc", connString)
 		if err != nil {
@@ -332,9 +330,9 @@ func ConnectWithRetry(connString string, cfg *ConnectConfig) (*Connection, error
 		}
 
 		span.SetAttributes(
-			attribute.Bool("connection.success", true),
+			tracing.Bool("connection.success", true),
 		)
-		span.SetStatus(codes.Ok, "")
+		span.SetStatus(tracing.Ok, "")
 		return &Connection{
 			connString: connString,
 			connected:  true,
@@ -343,7 +341,7 @@ func ConnectWithRetry(connString string, cfg *ConnectConfig) (*Connection, error
 	}
 
 	span.RecordError(lastErr)
-	span.SetStatus(codes.Error, lastErr.Error())
+	span.SetStatus(tracing.Error, lastErr.Error())
 	return nil, fmt.Errorf("connect with retry failed after %d attempts: %w", cfg.MaxRetries, lastErr)
 }
 
@@ -522,8 +520,8 @@ func (c *Connection) Execute(ctx context.Context, query string, args ...interfac
 
 	ctx, span := tracing.StartSpan(ctx, "odbc_execute")
 	span.SetAttributes(
-		attribute.String("db.statement", query),
-		attribute.Int("db.args_count", len(args)),
+		tracing.String("db.statement", query),
+		tracing.Int("db.args_count", len(args)),
 	)
 	defer func() {
 		span.End()
@@ -536,7 +534,7 @@ func (c *Connection) Execute(ctx context.Context, query string, args ...interfac
 
 	var lastErr error
 	for attempt := 1; attempt <= cfg.MaxRetries; attempt++ {
-		span.SetAttributes(attribute.Int("db.attempt", attempt))
+		span.SetAttributes(tracing.Int("db.attempt", attempt))
 
 		select {
 		case <-ctx.Done():
@@ -547,14 +545,14 @@ func (c *Connection) Execute(ctx context.Context, query string, args ...interfac
 
 		result, err := c.db.ExecContext(ctx, query, args...)
 		if err == nil {
-			span.SetStatus(codes.Ok, "")
+			span.SetStatus(tracing.Ok, "")
 			return result, nil
 		}
 
 		lastErr = err
 		span.RecordError(err)
 		if !isRetryableError(err) {
-			span.SetStatus(codes.Error, err.Error())
+			span.SetStatus(tracing.Error, err.Error())
 			return nil, err
 		}
 
@@ -570,7 +568,7 @@ func (c *Connection) Execute(ctx context.Context, query string, args ...interfac
 		}
 	}
 
-	span.SetStatus(codes.Error, lastErr.Error())
+	span.SetStatus(tracing.Error, lastErr.Error())
 	return nil, lastErr
 }
 
@@ -581,8 +579,8 @@ func (c *Connection) Query(ctx context.Context, query string, args ...interface{
 
 	ctx, span := tracing.StartSpan(ctx, "odbc_query")
 	span.SetAttributes(
-		attribute.String("db.statement", query),
-		attribute.Int("db.args_count", len(args)),
+		tracing.String("db.statement", query),
+		tracing.Int("db.args_count", len(args)),
 	)
 	defer func() {
 		span.End()
@@ -599,7 +597,7 @@ func (c *Connection) Query(ctx context.Context, query string, args ...interface{
 
 	var lastErr error
 	for attempt := 1; attempt <= cfg.MaxRetries; attempt++ {
-		span.SetAttributes(attribute.Int("db.attempt", attempt))
+		span.SetAttributes(tracing.Int("db.attempt", attempt))
 
 		select {
 		case <-ctx.Done():
@@ -610,14 +608,14 @@ func (c *Connection) Query(ctx context.Context, query string, args ...interface{
 
 		rows, err := c.db.QueryContext(ctx, query, args...)
 		if err == nil {
-			span.SetStatus(codes.Ok, "")
+			span.SetStatus(tracing.Ok, "")
 			return rows, nil
 		}
 
 		lastErr = err
 		span.RecordError(err)
 		if !isRetryableError(err) {
-			span.SetStatus(codes.Error, err.Error())
+			span.SetStatus(tracing.Error, err.Error())
 			return nil, err
 		}
 
@@ -633,7 +631,7 @@ func (c *Connection) Query(ctx context.Context, query string, args ...interface{
 		}
 	}
 
-	span.SetStatus(codes.Error, lastErr.Error())
+	span.SetStatus(tracing.Error, lastErr.Error())
 	return nil, lastErr
 }
 

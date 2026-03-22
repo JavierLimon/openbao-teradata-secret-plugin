@@ -18,9 +18,6 @@ import (
 	"github.com/JavierLimon/openbao-teradata-secret-plugin/webhook"
 	"github.com/openbao/openbao/sdk/v2/framework"
 	"github.com/openbao/openbao/sdk/v2/logical"
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/codes"
-	"go.opentelemetry.io/otel/trace"
 )
 
 const (
@@ -181,9 +178,9 @@ func (b *Backend) HandleRequest(ctx context.Context, req *logical.Request) (*log
 	}
 
 	ctx, span := tracing.StartSpan(ctx, "handle_request",
-		trace.WithAttributes(
-			attribute.String("request.path", req.Path),
-			attribute.String("request.operation", string(req.Operation)),
+		tracing.WithAttributes(
+			tracing.String("request.path", req.Path),
+			tracing.String("request.operation", string(req.Operation)),
 		),
 	)
 	defer func() {
@@ -192,16 +189,16 @@ func (b *Backend) HandleRequest(ctx context.Context, req *logical.Request) (*log
 
 	if err := b.rateLimiter.RateLimit(ctx, req); err != nil {
 		span.RecordError(err)
-		span.SetStatus(codes.Error, err.Error())
+		span.SetStatus(tracing.Error, err.Error())
 		return nil, err
 	}
 
 	resp, err := b.Backend.HandleRequest(ctx, req)
 	if err != nil {
 		span.RecordError(err)
-		span.SetStatus(codes.Error, err.Error())
+		span.SetStatus(tracing.Error, err.Error())
 	} else {
-		span.SetStatus(codes.Ok, "")
+		span.SetStatus(tracing.Ok, "")
 	}
 
 	return resp, err
@@ -435,7 +432,7 @@ func (b *Backend) Revoke(ctx context.Context, leaseID string) error {
 
 	ctx, span := tracing.StartSpan(ctx, "revoke_credential")
 	span.SetAttributes(
-		attribute.String("lease_id", leaseID),
+		tracing.String("lease_id", leaseID),
 	)
 	defer func() {
 		span.End()
@@ -449,8 +446,8 @@ func (b *Backend) Revoke(ctx context.Context, leaseID string) error {
 	roleName := parts[2]
 	username := parts[3]
 	span.SetAttributes(
-		attribute.String("role_name", roleName),
-		attribute.String("username", username),
+		tracing.String("role_name", roleName),
+		tracing.String("username", username),
 	)
 
 	cred, err := b.getCachedCredential(ctx, b.storage, username)

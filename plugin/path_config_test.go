@@ -126,7 +126,14 @@ func TestPathConfigWrite(t *testing.T) {
 			}
 
 			rawData := map[string]interface{}{
+				"name":              "test",
+				"plugin_name":       "teradata-database-plugin",
+				"plugin_version":    "",
+				"verify_connection": true,
+				"allowed_roles":     []string{},
 				"connection_string": tt.connectionString,
+				"username":          "testuser",
+				"password":          "testpass",
 			}
 			if tt.maxOpenConnections != 0 || tt.maxIdleConnections != 0 || tt.connectionTimeout != 0 {
 				rawData["max_open_connections"] = tt.maxOpenConnections

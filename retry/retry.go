@@ -11,8 +11,6 @@ import (
 
 	"github.com/JavierLimon/openbao-teradata-secret-plugin/odbc"
 	"github.com/JavierLimon/openbao-teradata-secret-plugin/tracing"
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/codes"
 )
 
 const (
@@ -123,7 +121,7 @@ func calculateBackoff(attempt int, cfg *Config) time.Duration {
 func Do(ctx context.Context, cfg *Config, op func() error) error {
 	ctx, span := tracing.StartSpan(ctx, "retry_do")
 	span.SetAttributes(
-		attribute.Int("retry.max_attempts", cfg.MaxAttempts),
+		tracing.Int("retry.max_attempts", cfg.MaxAttempts),
 	)
 	defer func() {
 		span.End()
@@ -136,11 +134,11 @@ func Do(ctx context.Context, cfg *Config, op func() error) error {
 		cfg.MaxAttempts = DefaultMaxAttempts
 	}
 
-	span.SetAttributes(attribute.Int("retry.max_attempts", cfg.MaxAttempts))
+	span.SetAttributes(tracing.Int("retry.max_attempts", cfg.MaxAttempts))
 
 	var lastErr error
 	for attempt := 1; attempt <= cfg.MaxAttempts; attempt++ {
-		span.SetAttributes(attribute.Int("retry.attempt", attempt))
+		span.SetAttributes(tracing.Int("retry.attempt", attempt))
 
 		select {
 		case <-ctx.Done():
@@ -151,20 +149,20 @@ func Do(ctx context.Context, cfg *Config, op func() error) error {
 
 		lastErr = op()
 		if lastErr == nil {
-			span.SetStatus(codes.Ok, "")
+			span.SetStatus(tracing.Ok, "")
 			return nil
 		}
 
 		span.RecordError(lastErr)
 
 		if !IsRetryableError(lastErr) {
-			span.SetStatus(codes.Error, lastErr.Error())
+			span.SetStatus(tracing.Error, lastErr.Error())
 			return lastErr
 		}
 
 		if attempt < cfg.MaxAttempts {
 			backoff := calculateBackoff(attempt, cfg)
-			span.SetAttributes(attribute.String("retry.backoff", backoff.String()))
+			span.SetAttributes(tracing.String("retry.backoff", backoff.String()))
 			if cfg.OnRetry != nil {
 				cfg.OnRetry(attempt, lastErr)
 			}
@@ -178,7 +176,7 @@ func Do(ctx context.Context, cfg *Config, op func() error) error {
 		}
 	}
 
-	span.SetStatus(codes.Error, lastErr.Error())
+	span.SetStatus(tracing.Error, lastErr.Error())
 	return lastErr
 }
 
