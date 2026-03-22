@@ -48,11 +48,11 @@ services:
       - ODBCINI=/opt/teradata/client/21.20/odbc_64/odbc.ini
       - TERADATA_ODBC_DRIVER=Teradata Database ODBC Driver 21.20
       - TERADATA_HOST=teradata
-    volumes:
-      - ./bin:/plugin/bin
+      - TERADATA_PORT=1025
     network_mode: service:teradata
     depends_on:
-      - teradata
+      teradata:
+        condition: service_healthy
 
 volumes:
   teradata-data:
