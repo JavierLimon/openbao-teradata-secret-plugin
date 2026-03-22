@@ -13,14 +13,36 @@ func TestPathConfigWrite(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name               string
-		connectionString   string
-		maxOpenConnections int
-		maxIdleConnections int
-		connectionTimeout  int
-		wantErr            bool
-		errContains        string
-		checkResponse      func(*testing.T, *logical.Response)
+		name                    string
+		connectionString        string
+		connectionURL           string
+		maxOpenConnections      int
+		maxIdleConnections      int
+		connectionTimeout       int
+		maxRetries              int
+		initialRetryInterval    int
+		maxRetryInterval        int
+		retryMultiplier         float64
+		sessionVariables        map[string]string
+		timezone                string
+		characterSet            string
+		evictionPolicy          string
+		evictionBatchSize       int
+		evictionGracePeriod     int
+		minEvictableIdleTime    int
+		gracefulDegradationMode bool
+		maxResultRows           int
+		maxConnectionLifetime   int
+		idleTimeout             int
+		sessionTimeout          int
+		sslMode                 string
+		sslCert                 string
+		sslKey                  string
+		sslRootCert             string
+		minConnections          int
+		wantErr                 bool
+		errContains             string
+		checkResponse           func(*testing.T, *logical.Response)
 	}{
 		{
 			name:               "valid config with DSN",
@@ -112,6 +134,171 @@ func TestPathConfigWrite(t *testing.T) {
 			connectionString: "DSN=teradata;PWD=\"my;complex;password\"",
 			wantErr:          false,
 		},
+		{
+			name:             "valid config with connection_url",
+			connectionString: "",
+			connectionURL:    "teradata://user:pass@localhost:1025/dbc",
+			wantErr:          false,
+		},
+		{
+			name:               "valid config with SSL settings",
+			connectionString:   "DSN=teradata;UID=user;PWD=pass",
+			maxOpenConnections: 5,
+			maxIdleConnections: 2,
+			connectionTimeout:  30,
+			sslMode:            "require",
+			sslCert:            "/path/to/cert.pem",
+			sslKey:             "/path/to/key.pem",
+			sslRootCert:        "/path/to/root.pem",
+			wantErr:            false,
+		},
+		{
+			name:                 "valid config with retry settings",
+			connectionString:     "DSN=teradata",
+			maxOpenConnections:   5,
+			maxIdleConnections:   2,
+			connectionTimeout:    30,
+			maxRetries:           5,
+			initialRetryInterval: 200,
+			maxRetryInterval:     6000,
+			retryMultiplier:      2.5,
+			wantErr:              false,
+		},
+		{
+			name:             "valid config with session variables",
+			connectionString: "DSN=teradata",
+			sessionVariables: map[string]string{"SESSION_DATE": "ANSI", "MODE": "TERA"},
+			wantErr:          false,
+		},
+		{
+			name:             "valid config with timezone and charset",
+			connectionString: "DSN=teradata",
+			timezone:         "America/New_York",
+			characterSet:     "utf8",
+			wantErr:          false,
+		},
+		{
+			name:                 "valid config with eviction policy",
+			connectionString:     "DSN=teradata",
+			evictionPolicy:       "fifo",
+			evictionBatchSize:    5,
+			evictionGracePeriod:  60,
+			minEvictableIdleTime: 600,
+			wantErr:              false,
+		},
+		{
+			name:                    "valid config with graceful degradation",
+			connectionString:        "DSN=teradata",
+			gracefulDegradationMode: true,
+			wantErr:                 false,
+		},
+		{
+			name:             "valid config with max result rows",
+			connectionString: "DSN=teradata",
+			maxResultRows:    1000,
+			wantErr:          false,
+		},
+		{
+			name:                  "valid config with connection lifetime settings",
+			connectionString:      "DSN=teradata",
+			maxConnectionLifetime: 7200,
+			idleTimeout:           600,
+			sessionTimeout:        3600,
+			wantErr:               false,
+		},
+		{
+			name:             "invalid SSL mode",
+			connectionString: "DSN=teradata",
+			sslMode:          "invalid",
+			wantErr:          true,
+			errContains:      "ssl_mode",
+		},
+		{
+			name:             "invalid eviction policy",
+			connectionString: "DSN=teradata",
+			evictionPolicy:   "invalid",
+			wantErr:          true,
+			errContains:      "eviction_policy",
+		},
+		{
+			name:             "negative max retries",
+			connectionString: "DSN=teradata",
+			maxRetries:       -1,
+			wantErr:          true,
+			errContains:      "max_retries",
+		},
+		{
+			name:                 "negative initial retry interval",
+			connectionString:     "DSN=teradata",
+			initialRetryInterval: -100,
+			wantErr:              true,
+			errContains:          "initial_retry_interval",
+		},
+		{
+			name:             "negative max retry interval",
+			connectionString: "DSN=teradata",
+			maxRetryInterval: -500,
+			wantErr:          true,
+			errContains:      "max_retry_interval",
+		},
+		{
+			name:             "negative retry multiplier",
+			connectionString: "DSN=teradata",
+			retryMultiplier:  -1.0,
+			wantErr:          true,
+			errContains:      "retry_multiplier",
+		},
+		{
+			name:             "negative max result rows",
+			connectionString: "DSN=teradata",
+			maxResultRows:    -10,
+			wantErr:          true,
+			errContains:      "max_result_rows",
+		},
+		{
+			name:              "negative eviction batch size",
+			connectionString:  "DSN=teradata",
+			evictionBatchSize: -1,
+			wantErr:           true,
+			errContains:       "eviction_batch_size",
+		},
+		{
+			name:                "negative eviction grace period",
+			connectionString:    "DSN=teradata",
+			evictionGracePeriod: -30,
+			wantErr:             true,
+			errContains:         "eviction_grace_period",
+		},
+		{
+			name:                 "negative min evictable idle time",
+			connectionString:     "DSN=teradata",
+			minEvictableIdleTime: -300,
+			wantErr:              true,
+			errContains:          "min_evictable_idle_time",
+		},
+		{
+			name:               "max idle greater than max open",
+			connectionString:   "DSN=teradata",
+			maxOpenConnections: 5,
+			maxIdleConnections: 10,
+			wantErr:            true,
+			errContains:        "max_idle_connections",
+		},
+		{
+			name:               "max open less than min connections",
+			connectionString:   "DSN=teradata",
+			minConnections:     10,
+			maxOpenConnections: 5,
+			wantErr:            true,
+			errContains:        "max_open_connections",
+		},
+		{
+			name:             "negative min connections",
+			connectionString: "DSN=teradata",
+			minConnections:   -1,
+			wantErr:          true,
+			errContains:      "min_connections",
+		},
 	}
 
 	for _, tt := range tests {
@@ -131,6 +318,7 @@ func TestPathConfigWrite(t *testing.T) {
 				"verify_connection": false,
 				"allowed_roles":     []string{},
 				"connection_string": tt.connectionString,
+				"connection_url":    tt.connectionURL,
 				"username":          "testuser",
 				"password":          "testpass",
 			}
@@ -138,6 +326,72 @@ func TestPathConfigWrite(t *testing.T) {
 				rawData["max_open_connections"] = tt.maxOpenConnections
 				rawData["max_idle_connections"] = tt.maxIdleConnections
 				rawData["connection_timeout"] = tt.connectionTimeout
+			}
+			if tt.connectionURL != "" {
+				rawData["connection_url"] = tt.connectionURL
+			}
+			if tt.sslMode != "" {
+				rawData["ssl_mode"] = tt.sslMode
+			}
+			if tt.sslCert != "" {
+				rawData["ssl_cert"] = tt.sslCert
+			}
+			if tt.sslKey != "" {
+				rawData["ssl_key"] = tt.sslKey
+			}
+			if tt.sslRootCert != "" {
+				rawData["ssl_root_cert"] = tt.sslRootCert
+			}
+			if tt.maxRetries != 0 {
+				rawData["max_retries"] = tt.maxRetries
+			}
+			if tt.initialRetryInterval != 0 {
+				rawData["initial_retry_interval"] = tt.initialRetryInterval
+			}
+			if tt.maxRetryInterval != 0 {
+				rawData["max_retry_interval"] = tt.maxRetryInterval
+			}
+			if tt.retryMultiplier != 0 {
+				rawData["retry_multiplier"] = tt.retryMultiplier
+			}
+			if tt.sessionVariables != nil {
+				rawData["session_variables"] = tt.sessionVariables
+			}
+			if tt.timezone != "" {
+				rawData["timezone"] = tt.timezone
+			}
+			if tt.characterSet != "" {
+				rawData["character_set"] = tt.characterSet
+			}
+			if tt.evictionPolicy != "" {
+				rawData["eviction_policy"] = tt.evictionPolicy
+			}
+			if tt.evictionBatchSize != 0 {
+				rawData["eviction_batch_size"] = tt.evictionBatchSize
+			}
+			if tt.evictionGracePeriod != 0 {
+				rawData["eviction_grace_period"] = tt.evictionGracePeriod
+			}
+			if tt.minEvictableIdleTime != 0 {
+				rawData["min_evictable_idle_time"] = tt.minEvictableIdleTime
+			}
+			if tt.gracefulDegradationMode {
+				rawData["graceful_degradation_mode"] = tt.gracefulDegradationMode
+			}
+			if tt.maxResultRows != 0 {
+				rawData["max_result_rows"] = tt.maxResultRows
+			}
+			if tt.maxConnectionLifetime != 0 {
+				rawData["max_connection_lifetime"] = tt.maxConnectionLifetime
+			}
+			if tt.idleTimeout != 0 {
+				rawData["idle_timeout"] = tt.idleTimeout
+			}
+			if tt.sessionTimeout != 0 {
+				rawData["session_timeout"] = tt.sessionTimeout
+			}
+			if tt.minConnections != 0 {
+				rawData["min_connections"] = tt.minConnections
 			}
 
 			data := &framework.FieldData{
