@@ -17,8 +17,10 @@ func main() {
 		os.Exit(0)
 	}
 
-	logging.Init()
-	logging.LogStartup(nil, teradata.Version)
+	if err := logging.InitFromEnv(); err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to initialize logging: %v\n", err)
+		os.Exit(1)
+	}
 
 	apiClientMeta := &api.PluginAPIClientMeta{}
 	flags := apiClientMeta.FlagSet()
@@ -32,9 +34,7 @@ func main() {
 		TLSProviderFunc:    tlsProviderFunc,
 	})
 	if err != nil {
-		logging.LogError(nil, "plugin_serve_error", err, nil)
+		fmt.Fprintf(os.Stderr, "Plugin serve error: %v\n", err)
 		os.Exit(1)
 	}
-
-	logging.LogShutdown(nil)
 }
