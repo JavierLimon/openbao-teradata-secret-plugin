@@ -1167,6 +1167,12 @@ func getRoleFieldSchema() map[string]*framework.FieldSchema {
 		"fallback": {
 			Type: framework.TypeBool,
 		},
+		"username_prefix": {
+			Type: framework.TypeString,
+		},
+		"username_suffix": {
+			Type: framework.TypeString,
+		},
 		"creation_statement": {
 			Type: framework.TypeString,
 		},

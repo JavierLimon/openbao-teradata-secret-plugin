@@ -25,7 +25,7 @@ func BenchmarkGenerateUsername(b *testing.B) {
 
 	for i := 0; i < b.N; i++ {
 		prefix := prefixes[i%len(prefixes)]
-		generateUsername(prefix)
+		generateUsername(prefix, "")
 	}
 }
 
@@ -34,7 +34,7 @@ func BenchmarkGenerateUsernameParallel(b *testing.B) {
 		counter := 0
 		for pb.Next() {
 			prefix := []string{"", "vault", "myapp"}[counter%3]
-			generateUsername(prefix)
+			generateUsername(prefix, "")
 			counter++
 		}
 	})
@@ -150,7 +150,7 @@ func BenchmarkGenerateUsernameUniqueness(b *testing.B) {
 	b.ResetTimer()
 
 	for i := 0; i < b.N; i++ {
-		username := generateUsername("vault")
+		username := generateUsername("vault", "")
 		usernames[username]++
 	}
 
@@ -168,7 +168,7 @@ func BenchmarkGenerateUsernameUniqueness(b *testing.B) {
 
 func BenchmarkGenerateUsernameHexSuffix(b *testing.B) {
 	for i := 0; i < b.N; i++ {
-		username := generateUsername("test")
+		username := generateUsername("test", "")
 
 		parts := splitUsername(username)
 		if len(parts) != 2 {

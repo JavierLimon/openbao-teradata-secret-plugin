@@ -140,7 +140,7 @@ func TestEnsurePasswordRequirementsContainsAllTypes(t *testing.T) {
 
 func TestGenerateUsername(t *testing.T) {
 	for i := 0; i < 100; i++ {
-		username := generateUsername("test")
+		username := generateUsername("test", "")
 
 		if !strings.HasPrefix(username, "test_") {
 			t.Errorf("username should start with 'test_', got: %s", username)
@@ -160,7 +160,7 @@ func TestGenerateUsername(t *testing.T) {
 
 func TestGenerateUsernameDefaultPrefix(t *testing.T) {
 	for i := 0; i < 100; i++ {
-		username := generateUsername("")
+		username := generateUsername("", "")
 
 		if !strings.HasPrefix(username, "vault_") {
 			t.Errorf("username should default to 'vault_' prefix, got: %s", username)
@@ -170,7 +170,7 @@ func TestGenerateUsernameDefaultPrefix(t *testing.T) {
 
 func TestGenerateUsernameNilPrefix(t *testing.T) {
 	for i := 0; i < 100; i++ {
-		username := generateUsername("")
+		username := generateUsername("", "")
 
 		parts := strings.Split(username, "_")
 		if len(parts) != 2 {
@@ -187,7 +187,7 @@ func TestGenerateUsernameNilPrefix(t *testing.T) {
 func TestGenerateUsernameUniqueness(t *testing.T) {
 	usernames := make(map[string]bool)
 	for i := 0; i < 1000; i++ {
-		username := generateUsername("vault")
+		username := generateUsername("vault", "")
 		if usernames[username] {
 			t.Errorf("duplicate username generated: %s", username)
 		}
@@ -197,7 +197,7 @@ func TestGenerateUsernameUniqueness(t *testing.T) {
 
 func TestGenerateUsernameHexSuffix(t *testing.T) {
 	for i := 0; i < 100; i++ {
-		username := generateUsername("test")
+		username := generateUsername("test", "")
 		parts := strings.Split(username, "_")
 		suffix := parts[1]
 
@@ -222,7 +222,7 @@ func TestGenerateUsernameCustomPrefix(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.prefix, func(t *testing.T) {
-			username := generateUsername(tt.prefix)
+			username := generateUsername(tt.prefix, "")
 			expectedPrefix := tt.prefix + "_"
 			if !strings.HasPrefix(username, expectedPrefix) {
 				t.Errorf("expected prefix %q, got %q", expectedPrefix, username)
