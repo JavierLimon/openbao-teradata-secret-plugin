@@ -573,34 +573,34 @@ func (b *Backend) generatePasswordWithPolicy(ctx context.Context, policy string)
 
 func buildTeradataCreateUserSQL(role *models.Role, username, password string) string {
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("CREATE USER %s FROM DBC AS\n", username))
-	sb.WriteString(fmt.Sprintf("PASSWORD = %s\n", password))
+	sb.WriteString(fmt.Sprintf("CREATE USER %s FROM DBC AS ", username))
+	sb.WriteString(fmt.Sprintf("PASSWORD = '%s' ", password))
 
 	if role.DefaultDatabase != "" {
-		sb.WriteString(fmt.Sprintf("DEFAULT DATABASE = %s\n", role.DefaultDatabase))
+		sb.WriteString(fmt.Sprintf("DEFAULT DATABASE = %s ", role.DefaultDatabase))
 	} else {
-		sb.WriteString(fmt.Sprintf("DEFAULT DATABASE = %s\n", username))
+		sb.WriteString(fmt.Sprintf("DEFAULT DATABASE = %s ", username))
 	}
 
 	if role.PermSpace > 0 {
-		sb.WriteString(fmt.Sprintf("PERM = %d\n", role.PermSpace))
+		sb.WriteString(fmt.Sprintf("PERM = %d ", role.PermSpace))
 	} else {
-		sb.WriteString("PERM = 1000000\n")
+		sb.WriteString("PERM = 1000000 ")
 	}
 
 	if role.SpoolSpace > 0 {
-		sb.WriteString(fmt.Sprintf("SPOOL = %d\n", role.SpoolSpace))
+		sb.WriteString(fmt.Sprintf("SPOOL = %d ", role.SpoolSpace))
 	}
 
 	if role.Account != "" {
-		sb.WriteString(fmt.Sprintf("ACCOUNT = '%s'\n", role.Account))
+		sb.WriteString(fmt.Sprintf("ACCOUNT = '%s' ", role.Account))
 	}
 
 	if role.Fallback {
-		sb.WriteString("FALLBACK\n")
+		sb.WriteString("FALLBACK ")
 	}
 
-	return sb.String()
+	return strings.TrimSpace(sb.String())
 }
 
 const (
