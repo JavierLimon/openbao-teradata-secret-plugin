@@ -3,6 +3,7 @@ package teradata
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
 	"sync"
 	"time"
@@ -85,7 +86,10 @@ func (b *Backend) Setup(ctx context.Context, cfg *logical.BackendConfig) error {
 }
 
 func (b *Backend) prewarmPools(ctx context.Context) error {
-	logging.LogConnectionEvent(nil, "pool_warmup_started", "", nil)
+	logging.Default().Info("pool_warmup_started",
+		slog.String("component", logging.ComponentBackend),
+		slog.String("operation", "prewarm_pools"),
+	)
 	configKeys := []string{"config"}
 
 	entries, err := b.storage.List(ctx, "config/")
@@ -99,7 +103,10 @@ func (b *Backend) prewarmPools(ctx context.Context) error {
 	for _, key := range configKeys {
 		entry, err := b.storage.Get(ctx, key)
 		if err != nil {
-			logging.LogConnectionEvent(nil, "prewarm_config_load_error", key, map[string]interface{}{"error": err.Error()})
+			logging.LogError(logging.Default(), logging.ComponentBackend, "prewarm_config_load",
+				fmt.Errorf("failed to load config key %s: %w", key, err),
+				slog.String("config_key", key),
+			)
 			continue
 		}
 		if entry == nil {
@@ -108,7 +115,10 @@ func (b *Backend) prewarmPools(ctx context.Context) error {
 
 		var cfg models.Config
 		if err := entry.DecodeJSON(&cfg); err != nil {
-			logging.LogConnectionEvent(nil, "prewarm_config_decode_error", key, map[string]interface{}{"error": err.Error()})
+			logging.LogError(logging.Default(), logging.ComponentBackend, "prewarm_config_decode",
+				fmt.Errorf("failed to decode config key %s: %w", key, err),
+				slog.String("config_key", key),
+			)
 			continue
 		}
 
@@ -142,19 +152,26 @@ func (b *Backend) prewarmPools(ctx context.Context) error {
 
 		conn, err := b.dbRegistry.AddConnection(name, dbConfig)
 		if err != nil {
-			logging.LogConnectionEvent(nil, "prewarm_pool_error", name, map[string]interface{}{"error": err.Error()})
+			logging.LogError(logging.Default(), logging.ComponentBackend, "prewarm_pool",
+				fmt.Errorf("failed to add connection %s: %w", name, err),
+				slog.String("connection_name", name),
+			)
 			continue
 		}
 
 		if conn != nil {
 			conn.WaitForWarmup()
-			logging.LogConnectionEvent(nil, "pool_prewarmed", name, map[string]interface{}{
-				"min_connections": dbConfig.MinConnections,
-			})
+			logging.LogOperation(logging.Default(), logging.ComponentBackend, "pool_prewarmed",
+				slog.String("connection_name", name),
+				slog.Int("min_connections", dbConfig.MinConnections),
+			)
 		}
 	}
 
-	logging.LogConnectionEvent(nil, "pool_warmup_completed", "", nil)
+	logging.Default().Info("pool_warmup_completed",
+		slog.String("component", logging.ComponentBackend),
+		slog.String("operation", "prewarm_pools"),
+	)
 	return nil
 }
 
