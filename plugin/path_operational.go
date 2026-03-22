@@ -30,10 +30,8 @@ func (b *Backend) pathHealth() *framework.Path {
 func (b *Backend) pathHealthRead(ctx context.Context, req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
 	cfg, err := getConfig(ctx, req.Storage)
 	if err != nil {
-		logging.Default().Warn("health_check_failed",
+		logging.LogError(nil, "health", "health_check_failed", err,
 			slog.String("reason", "config_error"),
-			slog.String("error", err.Error()),
-			slog.Time("timestamp", time.Now()),
 		)
 		return &logical.Response{
 			Data: map[string]interface{}{
@@ -88,9 +86,9 @@ func (b *Backend) pathHealthRead(ctx context.Context, req *logical.Request, data
 			poolInfo["error"] = connErr.Error()
 			overallHealthy = false
 			degradedPools = append(degradedPools, name)
-			logging.LogConnectionEvent(nil, "health_check_failed", name, map[string]interface{}{
-				"error": connErr.Error(),
-			})
+			logging.LogError(nil, "health", "health_check_failed", connErr,
+				slog.String("pool_name", name),
+			)
 		} else if state != storage.StateHealthy {
 			overallHealthy = false
 			degradedPools = append(degradedPools, name)
@@ -114,10 +112,9 @@ func (b *Backend) pathHealthRead(ctx context.Context, req *logical.Request, data
 		b.SetGracefulDegradation(false)
 	}
 
-	logging.Default().Info("health_check_completed",
+	logging.LogOperation(nil, "health", "health_check_completed",
 		slog.String("status", status),
 		slog.Int("pool_count", len(connectionNames)),
-		slog.Time("timestamp", time.Now()),
 	)
 
 	respData := map[string]interface{}{
@@ -373,15 +370,11 @@ func (b *Backend) pathDegradationUpdate(ctx context.Context, req *logical.Reques
 
 	if enabled {
 		b.SetManuallyEnabledDegradation(true)
-		logging.Default().Warn("graceful_degradation_manually_enabled",
-			slog.Time("timestamp", time.Now()),
-		)
+		logging.LogOperation(nil, "backend", "graceful_degradation_manually_enabled")
 	} else {
 		b.SetGracefulDegradation(false)
 		b.SetManuallyEnabledDegradation(false)
-		logging.Default().Info("graceful_degradation_manually_disabled",
-			slog.Time("timestamp", time.Now()),
-		)
+		logging.LogOperation(nil, "backend", "graceful_degradation_manually_disabled")
 	}
 
 	return b.pathDegradationRead(ctx, req, data)
