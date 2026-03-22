@@ -1,0 +1,93 @@
+groups:
+  - name: teradata-plugin-alerts
+    interval: 30s
+    rules:
+      - alert: TeradataPluginDown
+        expr: up{job="openbao-teradata-secret-plugin"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Teradata Plugin is down"
+          description: "The OpenBAO Teradata Secret Plugin has been unreachable for more than 2 minutes."
+
+      - alert: HighConnectionPoolUsage
+        expr: teradata_pool_active_connections / teradata_pool_open_connections > 0.8
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High connection pool usage"
+          description: "Connection pool {{ $labels.pool_name }} is at {{ $value | humanizePercentage }} capacity."
+
+      - alert: ConnectionPoolExhausted
+        expr: teradata_pool_open_connections - teradata_pool_idle_connections == teradata_pool_open_connections
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Connection pool exhausted"
+          description: "All connections in pool {{ $labels.pool_name }} are in use."
+
+      - alert: HighCredentialCreationLatency
+        expr: histogram_quantile(0.95, rate(teradata_credentials_creation_duration_seconds_bucket[5m])) > 5
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High credential creation latency"
+          description: "95th percentile credential creation time is {{ $value }}s for role {{ $labels.role_name }}."
+
+      - alert: HighCredentialCreationErrorRate
+        expr: rate(teradata_credentials_creation_errors_total[5m]) > 0.1
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "High credential creation error rate"
+          description: "Credential creation errors for role {{ $labels.role_name }}: {{ $value | humanize }} errors/sec."
+
+      - alert: HighConnectionErrorRate
+        expr: rate(teradata_pool_connection_errors_total[5m]) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "High connection error rate"
+          description: "Connection errors for pool {{ $labels.pool_name }}: {{ $value | humanize }} errors/sec."
+
+      - alert: LowCacheHitRate
+        expr: 100 * sum(rate(teradata_cache_hits_total[5m])) / (sum(rate(teradata_cache_hits_total[5m])) + sum(rate(teradata_cache_misses_total[5m]))) < 60
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Low cache hit rate"
+          description: "Cache hit rate is {{ $value | humanize }}% for cache type {{ $labels.cache_type }}."
+
+      - alert: HighRateLimitRejections
+        expr: rate(teradata_rate_limit_rejected_total[5m]) > 10
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High rate limit rejections"
+          description: "Rate limiting is rejecting {{ $value | humanize }} requests/sec."
+
+      - alert: UnhealthyPool
+        expr: teradata_pool_health_check_total{status="failure"} > teradata_pool_health_check_total{status="success"}
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Unhealthy connection pool"
+          description: "Pool {{ $labels.pool_name }} is reporting more failures than successes."
+
+      - alert: HighSQLExecutionLatency
+        expr: histogram_quantile(0.99, rate(teradata_sql_execution_duration_seconds_bucket[5m])) > 10
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High SQL execution latency"
+          description: "99th percentile SQL execution time is {{ $value }}s for operation {{ $labels.operation }}."
