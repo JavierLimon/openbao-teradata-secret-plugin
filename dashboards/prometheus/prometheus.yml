@@ -1,0 +1,89 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    cluster: 'teradata-plugin'
+    environment: '${ENVIRONMENT:production}'
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: []
+
+rule_files: []
+
+scrape_configs:
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  - job_name: 'openbao-teradata-secret-plugin'
+    metrics_path: '/v1/teradata/metrics'
+    scheme: 'https'
+    tls_config:
+      ca_file: /etc/prometheus/certs/ca.crt
+      cert_file: /etc/prometheus/certs/prometheus.crt
+      key_file: /etc/prometheus/certs/prometheus.key
+      insecure_skip_verify: false
+    static_configs:
+      - targets: ['${PLUGIN_HOST:localhost}:${PLUGIN_PORT:8200}']
+        labels:
+          service: 'teradata-secret-plugin'
+          plugin: 'openbao-teradata-secret-plugin'
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+        replacement: 'teradata-plugin-${1}'
+      - source_labels: [__meta_kubernetes_pod_name]
+        regex: '(.*)'
+        target_label: kubernetes_pod_name
+        replacement: '${1}'
+      - source_labels: [__meta_kubernetes_namespace]
+        regex: '(.*)'
+        target_label: kubernetes_namespace
+        replacement: '${1}'
+    metric_relabel_configs:
+      - source_labels: [__name__]
+        regex: 'teradata_.*'
+        action: keep
+      - source_labels: [pool_name]
+        regex: '(.*)'
+        target_label: pool
+        replacement: '${1}'
+
+  - job_name: 'openbao-teradata-plugin-pool-stats'
+    metrics_path: '/v1/teradata/pool-stats'
+    scheme: 'https'
+    tls_config:
+      ca_file: /etc/prometheus/certs/ca.crt
+      cert_file: /etc/prometheus/certs/prometheus.crt
+      key_file: /etc/prometheus/certs/prometheus.key
+      insecure_skip_verify: false
+    static_configs:
+      - targets: ['${PLUGIN_HOST:localhost}:${PLUGIN_PORT:8200}']
+        labels:
+          service: 'teradata-secret-plugin'
+          plugin: 'openbao-teradata-secret-plugin'
+          component: 'pool-stats'
+    scrape_interval: 60s
+    scrape_timeout: 30s
+
+  - job_name: 'openbao-teradata-plugin-health'
+    metrics_path: '/v1/teradata/health'
+    scheme: 'https'
+    tls_config:
+      ca_file: /etc/prometheus/certs/ca.crt
+      cert_file: /etc/prometheus/certs/prometheus.crt
+      key_file: /etc/prometheus/certs/prometheus.key
+      insecure_skip_verify: false
+    static_configs:
+      - targets: ['${PLUGIN_HOST:localhost}:${PLUGIN_PORT:8200}']
+        labels:
+          service: 'teradata-secret-plugin'
+          plugin: 'openbao-teradata-secret-plugin'
+          component: 'health'
+    scrape_interval: 30s
+    scrape_timeout: 10s
+
+remote_write:
+  - url: '${REMOTE_WRITE_URL:}'
