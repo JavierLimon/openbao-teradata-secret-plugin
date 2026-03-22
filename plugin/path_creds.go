@@ -14,9 +14,12 @@ import (
 	teradb "github.com/JavierLimon/openbao-teradata-secret-plugin/odbc"
 	"github.com/JavierLimon/openbao-teradata-secret-plugin/retry"
 	"github.com/JavierLimon/openbao-teradata-secret-plugin/security"
+	"github.com/JavierLimon/openbao-teradata-secret-plugin/tracing"
 	"github.com/JavierLimon/openbao-teradata-secret-plugin/webhook"
 	"github.com/openbao/openbao/sdk/v2/framework"
 	"github.com/openbao/openbao/sdk/v2/logical"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 )
 
 const (
@@ -115,26 +118,45 @@ func (b *Backend) pathCredsRead(ctx context.Context, req *logical.Request, data 
 	name := data.Get("name").(string)
 	region := data.Get("region").(string)
 
+	ctx, span := tracing.StartSpan(ctx, "path_creds_read")
+	span.SetAttributes(
+		attribute.String("role_name", name),
+		attribute.String("region", region),
+	)
+	defer func() {
+		span.End()
+	}()
+
 	role, err := getRole(ctx, req.Storage, name)
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return nil, err
 	}
 	if role == nil {
-		return nil, fmt.Errorf("role %q not found", name)
+		err = fmt.Errorf("role %q not found", name)
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return nil, err
 	}
 
 	if role.MaxCredentials > 0 {
 		currentCount, err := countCredentialsByRole(ctx, req.Storage, name)
 		if err != nil {
+			span.RecordError(err)
 			return nil, fmt.Errorf("failed to count credentials: %w", err)
 		}
 		if currentCount >= role.MaxCredentials {
-			return nil, fmt.Errorf("credential quota exceeded for role %q: max %d, current %d", name, role.MaxCredentials, currentCount)
+			err = fmt.Errorf("credential quota exceeded for role %q: max %d, current %d", name, role.MaxCredentials, currentCount)
+			span.RecordError(err)
+			span.SetStatus(codes.Error, err.Error())
+			return nil, err
 		}
 	}
 
 	if role.UsernamePrefix != "" {
 		if err := teradb.ValidateUsername(role.UsernamePrefix); err != nil {
+			span.RecordError(err)
 			return nil, fmt.Errorf("invalid username_prefix: %w", err)
 		}
 	}
@@ -143,18 +165,26 @@ func (b *Backend) pathCredsRead(ctx context.Context, req *logical.Request, data 
 	if region != "" {
 		cfg, err = getConfigByRegion(ctx, req.Storage, region)
 		if err != nil {
+			span.RecordError(err)
 			return nil, fmt.Errorf("failed to get region config: %w", err)
 		}
 		if cfg == nil {
-			return nil, fmt.Errorf("configuration for region %q not found", region)
+			err = fmt.Errorf("configuration for region %q not found", region)
+			span.RecordError(err)
+			span.SetStatus(codes.Error, err.Error())
+			return nil, err
 		}
 	} else {
 		cfg, err = getConfig(ctx, req.Storage)
 		if err != nil {
+			span.RecordError(err)
 			return nil, err
 		}
 		if cfg == nil {
-			return nil, fmt.Errorf("database configuration not found")
+			err = fmt.Errorf("database configuration not found")
+			span.RecordError(err)
+			span.SetStatus(codes.Error, err.Error())
+			return nil, err
 		}
 	}
 
@@ -184,10 +214,14 @@ func (b *Backend) pathCredsRead(ctx context.Context, req *logical.Request, data 
 	if role.StatementTemplate != "" {
 		statement, err := getStatement(ctx, req.Storage, role.StatementTemplate)
 		if err != nil {
+			span.RecordError(err)
 			return nil, fmt.Errorf("failed to load statement template: %w", err)
 		}
 		if statement == nil {
-			return nil, fmt.Errorf("statement template %q not found", role.StatementTemplate)
+			err = fmt.Errorf("statement template %q not found", role.StatementTemplate)
+			span.RecordError(err)
+			span.SetStatus(codes.Error, err.Error())
+			return nil, err
 		}
 		if statement.CreationStatement != "" {
 			creationStatement = statement.CreationStatement
@@ -201,16 +235,24 @@ func (b *Backend) pathCredsRead(ctx context.Context, req *logical.Request, data 
 	password := generatePassword()
 
 	if err := teradb.ValidateUsername(username); err != nil {
+		span.RecordError(err)
 		return nil, fmt.Errorf("generated username validation failed: %w", err)
 	}
 
 	if err := security.ValidatePassword(password); err != nil {
+		span.RecordError(err)
 		return nil, fmt.Errorf("generated password validation failed: %w", err)
 	}
+
+	span.SetAttributes(
+		attribute.String("username", username),
+	)
 
 	createSQL := buildTeradataCreateUserSQL(role, username, password)
 	_, err = executeSQL(ctx, cfg, createSQL)
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return nil, fmt.Errorf("failed to create user: %w", err)
 	}
 
@@ -228,6 +270,8 @@ func (b *Backend) pathCredsRead(ctx context.Context, req *logical.Request, data 
 			}
 			dropSQL := fmt.Sprintf("DROP USER %s", username)
 			executeSQL(ctx, cfg, dropSQL)
+			span.RecordError(err)
+			span.SetStatus(codes.Error, err.Error())
 			return nil, fmt.Errorf("failed to run creation statement: %w", err)
 		}
 	}
@@ -248,6 +292,7 @@ func (b *Backend) pathCredsRead(ctx context.Context, req *logical.Request, data 
 	}
 
 	if err := storeCredential(ctx, req.Storage, username, cred); err != nil {
+		span.RecordError(err)
 		return nil, fmt.Errorf("failed to store credential: %w", err)
 	}
 	b.cacheCredential(username, cred)
@@ -277,6 +322,7 @@ func (b *Backend) pathCredsRead(ctx context.Context, req *logical.Request, data 
 	_ = audit.LogCredentialCreation(ctx, req.Storage, username, name, leaseID, nil)
 	_ = webhook.SendCredentialCreatedWebhook(ctx, req.Storage, username, name, leaseID, nil)
 
+	span.SetStatus(codes.Ok, "")
 	return resp, nil
 }
 
@@ -606,8 +652,19 @@ func executeSQL(ctx context.Context, cfg *models.Config, sql string) (interface{
 	var result interface{}
 	var err error
 
+	ctx, span := tracing.StartSpan(ctx, "execute_sql")
+	span.SetAttributes(
+		attribute.String("db.region", cfg.Region),
+		attribute.String("sql.operation", "execute"),
+	)
+	defer func() {
+		span.End()
+	}()
+
 	connString, err := buildConnectionString(cfg)
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return nil, fmt.Errorf("failed to build connection string: %w", err)
 	}
 
@@ -632,9 +689,12 @@ func executeSQL(ctx context.Context, cfg *models.Config, sql string) (interface{
 	})
 
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return nil, fmt.Errorf("executeSQL failed after retries: %w", err)
 	}
 
+	span.SetStatus(codes.Ok, "")
 	return result, nil
 }
 

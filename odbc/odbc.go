@@ -11,6 +11,10 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/JavierLimon/openbao-teradata-secret-plugin/tracing"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 )
 
 var (
@@ -272,6 +276,15 @@ func Connect(connString string) (*Connection, error) {
 }
 
 func ConnectWithRetry(connString string, cfg *ConnectConfig) (*Connection, error) {
+	ctx := context.Background()
+	ctx, span := tracing.StartSpan(ctx, "odbc_connect")
+	span.SetAttributes(
+		attribute.String("connection.conn_string_length", fmt.Sprintf("%d", len(connString))),
+	)
+	defer func() {
+		span.End()
+	}()
+
 	if cfg == nil {
 		cfg = DefaultConnectConfig()
 	}
@@ -290,9 +303,12 @@ func ConnectWithRetry(connString string, cfg *ConnectConfig) (*Connection, error
 
 	var lastErr error
 	for attempt := 1; attempt <= cfg.MaxRetries; attempt++ {
+		span.SetAttributes(attribute.Int("connection.attempt", attempt))
+
 		db, err := sql.Open("odbc", connString)
 		if err != nil {
 			lastErr = fmt.Errorf("failed to open ODBC connection: %w", err)
+			span.RecordError(err)
 			if !isRetryableError(lastErr) {
 				break
 			}
@@ -305,6 +321,7 @@ func ConnectWithRetry(connString string, cfg *ConnectConfig) (*Connection, error
 		if err := db.Ping(); err != nil {
 			db.Close()
 			lastErr = fmt.Errorf("failed to ping ODBC connection: %w", err)
+			span.RecordError(err)
 			if !isRetryableError(lastErr) {
 				break
 			}
@@ -314,6 +331,10 @@ func ConnectWithRetry(connString string, cfg *ConnectConfig) (*Connection, error
 			continue
 		}
 
+		span.SetAttributes(
+			attribute.Bool("connection.success", true),
+		)
+		span.SetStatus(codes.Ok, "")
 		return &Connection{
 			connString: connString,
 			connected:  true,
@@ -321,6 +342,8 @@ func ConnectWithRetry(connString string, cfg *ConnectConfig) (*Connection, error
 		}, nil
 	}
 
+	span.RecordError(lastErr)
+	span.SetStatus(codes.Error, lastErr.Error())
 	return nil, fmt.Errorf("connect with retry failed after %d attempts: %w", cfg.MaxRetries, lastErr)
 }
 
@@ -497,6 +520,15 @@ func (c *Connection) Execute(ctx context.Context, query string, args ...interfac
 		return nil, ErrNotConnected
 	}
 
+	ctx, span := tracing.StartSpan(ctx, "odbc_execute")
+	span.SetAttributes(
+		attribute.String("db.statement", query),
+		attribute.Int("db.args_count", len(args)),
+	)
+	defer func() {
+		span.End()
+	}()
+
 	cfg := c.retryConfig
 	if cfg == nil {
 		cfg = DefaultQueryRetryConfig()
@@ -504,19 +536,25 @@ func (c *Connection) Execute(ctx context.Context, query string, args ...interfac
 
 	var lastErr error
 	for attempt := 1; attempt <= cfg.MaxRetries; attempt++ {
+		span.SetAttributes(attribute.Int("db.attempt", attempt))
+
 		select {
 		case <-ctx.Done():
+			span.RecordError(ctx.Err())
 			return nil, ctx.Err()
 		default:
 		}
 
 		result, err := c.db.ExecContext(ctx, query, args...)
 		if err == nil {
+			span.SetStatus(codes.Ok, "")
 			return result, nil
 		}
 
 		lastErr = err
+		span.RecordError(err)
 		if !isRetryableError(err) {
+			span.SetStatus(codes.Error, err.Error())
 			return nil, err
 		}
 
@@ -526,11 +564,13 @@ func (c *Connection) Execute(ctx context.Context, query string, args ...interfac
 			<-sleepCtx.Done()
 			cancel()
 			if sleepCtx.Err() != nil && sleepCtx.Err() != context.DeadlineExceeded {
+				span.RecordError(sleepCtx.Err())
 				return nil, sleepCtx.Err()
 			}
 		}
 	}
 
+	span.SetStatus(codes.Error, lastErr.Error())
 	return nil, lastErr
 }
 
@@ -538,6 +578,15 @@ func (c *Connection) Query(ctx context.Context, query string, args ...interface{
 	if !c.connected || c.db == nil {
 		return nil, ErrNotConnected
 	}
+
+	ctx, span := tracing.StartSpan(ctx, "odbc_query")
+	span.SetAttributes(
+		attribute.String("db.statement", query),
+		attribute.Int("db.args_count", len(args)),
+	)
+	defer func() {
+		span.End()
+	}()
 
 	cfg := c.retryConfig
 	if cfg == nil {
@@ -550,19 +599,25 @@ func (c *Connection) Query(ctx context.Context, query string, args ...interface{
 
 	var lastErr error
 	for attempt := 1; attempt <= cfg.MaxRetries; attempt++ {
+		span.SetAttributes(attribute.Int("db.attempt", attempt))
+
 		select {
 		case <-ctx.Done():
+			span.RecordError(ctx.Err())
 			return nil, ctx.Err()
 		default:
 		}
 
 		rows, err := c.db.QueryContext(ctx, query, args...)
 		if err == nil {
+			span.SetStatus(codes.Ok, "")
 			return rows, nil
 		}
 
 		lastErr = err
+		span.RecordError(err)
 		if !isRetryableError(err) {
+			span.SetStatus(codes.Error, err.Error())
 			return nil, err
 		}
 
@@ -572,11 +627,13 @@ func (c *Connection) Query(ctx context.Context, query string, args ...interface{
 			<-sleepCtx.Done()
 			cancel()
 			if sleepCtx.Err() != nil && sleepCtx.Err() != context.DeadlineExceeded {
+				span.RecordError(sleepCtx.Err())
 				return nil, sleepCtx.Err()
 			}
 		}
 	}
 
+	span.SetStatus(codes.Error, lastErr.Error())
 	return nil, lastErr
 }
 

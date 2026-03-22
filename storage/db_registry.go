@@ -11,6 +11,9 @@ import (
 	"github.com/JavierLimon/openbao-teradata-secret-plugin/metrics"
 	_ "github.com/JavierLimon/openbao-teradata-secret-plugin/odbc"
 	"github.com/JavierLimon/openbao-teradata-secret-plugin/retry"
+	"github.com/JavierLimon/openbao-teradata-secret-plugin/tracing"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 )
 
 type EvictionPolicy string
@@ -284,6 +287,14 @@ func (r *DBRegistry) runHealthChecks() {
 }
 
 func (c *DBConnection) CheckHealth(ctx context.Context) error {
+	ctx, span := tracing.StartSpan(ctx, "db_health_check")
+	span.SetAttributes(
+		attribute.String("db.pool_name", c.Config.Name),
+	)
+	defer func() {
+		span.End()
+	}()
+
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -296,6 +307,8 @@ func (c *DBConnection) CheckHealth(ctx context.Context) error {
 		metrics.PoolHealthCheckTotal.WithLabelValues(c.Config.Name, "closed").Inc()
 		metrics.PoolConnectionErrors.WithLabelValues(c.Config.Name, "nil_connection").Inc()
 		logging.LogHealthCheck(nil, c.Config.Name, "closed", time.Since(startTime), c.healthCheckErr)
+		span.RecordError(c.healthCheckErr)
+		span.SetStatus(codes.Error, c.healthCheckErr.Error())
 		return c.healthCheckErr
 	}
 
@@ -314,12 +327,15 @@ func (c *DBConnection) CheckHealth(ctx context.Context) error {
 		metrics.PoolHealthCheckTotal.WithLabelValues(c.Config.Name, "unhealthy").Inc()
 		metrics.PoolConnectionErrors.WithLabelValues(c.Config.Name, "ping_failed").Inc()
 		logging.LogHealthCheck(nil, c.Config.Name, "unhealthy", time.Since(startTime), c.healthCheckErr)
+		span.RecordError(c.healthCheckErr)
+		span.SetStatus(codes.Error, c.healthCheckErr.Error())
 	} else {
 		c.state = StateHealthy
 		c.healthCheckErr = nil
 		metrics.PoolHealthCheckDuration.WithLabelValues(c.Config.Name, "healthy").Observe(duration)
 		metrics.PoolHealthCheckTotal.WithLabelValues(c.Config.Name, "healthy").Inc()
 		logging.LogHealthCheck(nil, c.Config.Name, "healthy", time.Since(startTime), nil)
+		span.SetStatus(codes.Ok, "")
 	}
 	c.lastHealthCheck = time.Now()
 	return c.healthCheckErr

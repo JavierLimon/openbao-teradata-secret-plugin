@@ -13,9 +13,13 @@ import (
 	"github.com/JavierLimon/openbao-teradata-secret-plugin/odbc"
 	"github.com/JavierLimon/openbao-teradata-secret-plugin/retry"
 	"github.com/JavierLimon/openbao-teradata-secret-plugin/storage"
+	"github.com/JavierLimon/openbao-teradata-secret-plugin/tracing"
 	"github.com/JavierLimon/openbao-teradata-secret-plugin/webhook"
 	"github.com/openbao/openbao/sdk/v2/framework"
 	"github.com/openbao/openbao/sdk/v2/logical"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 )
 
 const (
@@ -159,11 +163,31 @@ func (b *Backend) HandleRequest(ctx context.Context, req *logical.Request) (*log
 		return b.Backend.HandleRequest(ctx, req)
 	}
 
+	ctx, span := tracing.StartSpan(ctx, "handle_request",
+		trace.WithAttributes(
+			attribute.String("request.path", req.Path),
+			attribute.String("request.operation", string(req.Operation)),
+		),
+	)
+	defer func() {
+		span.End()
+	}()
+
 	if err := b.rateLimiter.RateLimit(ctx, req); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return nil, err
 	}
 
-	return b.Backend.HandleRequest(ctx, req)
+	resp, err := b.Backend.HandleRequest(ctx, req)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+	} else {
+		span.SetStatus(codes.Ok, "")
+	}
+
+	return resp, err
 }
 
 func (b *Backend) SetRateLimiterEnabled(enabled bool) {
@@ -385,6 +409,14 @@ func (b *Backend) Revoke(ctx context.Context, leaseID string) error {
 		return nil
 	}
 
+	ctx, span := tracing.StartSpan(ctx, "revoke_credential")
+	span.SetAttributes(
+		attribute.String("lease_id", leaseID),
+	)
+	defer func() {
+		span.End()
+	}()
+
 	parts := strings.Split(leaseID, "/")
 	if len(parts) < 4 || parts[0] != "teradata" || parts[1] != "creds" {
 		return nil
@@ -392,9 +424,14 @@ func (b *Backend) Revoke(ctx context.Context, leaseID string) error {
 
 	roleName := parts[2]
 	username := parts[3]
+	span.SetAttributes(
+		attribute.String("role_name", roleName),
+		attribute.String("username", username),
+	)
 
 	cred, err := b.getCachedCredential(ctx, b.storage, username)
 	if err != nil {
+		span.RecordError(err)
 		return fmt.Errorf("failed to get credential for revocation: %w", err)
 	}
 
@@ -402,6 +439,7 @@ func (b *Backend) Revoke(ctx context.Context, leaseID string) error {
 	if cred != nil && cred.Region != "" {
 		cfg, err = getConfigByRegion(ctx, b.storage, cred.Region)
 		if err != nil {
+			span.RecordError(err)
 			return fmt.Errorf("failed to get region config for revocation: %w", err)
 		}
 		if cfg == nil {
@@ -410,6 +448,7 @@ func (b *Backend) Revoke(ctx context.Context, leaseID string) error {
 	} else {
 		cfg, err = getConfig(ctx, b.storage)
 		if err != nil {
+			span.RecordError(err)
 			return fmt.Errorf("failed to get config for revocation: %w", err)
 		}
 		if cfg == nil {
@@ -419,6 +458,7 @@ func (b *Backend) Revoke(ctx context.Context, leaseID string) error {
 
 	role, err := getRole(ctx, b.storage, roleName)
 	if err != nil {
+		span.RecordError(err)
 		return fmt.Errorf("failed to get role for revocation: %w", err)
 	}
 
@@ -449,6 +489,7 @@ func (b *Backend) Revoke(ctx context.Context, leaseID string) error {
 		return err
 	})
 	if err != nil {
+		span.RecordError(err)
 		_ = audit.LogCredentialRevocation(ctx, b.storage, username, roleName, map[string]interface{}{"error": err.Error()})
 		_ = webhook.SendCredentialRevokedWebhook(ctx, b.storage, username, roleName, map[string]interface{}{"error": err.Error()})
 		return fmt.Errorf("failed to connect for revocation: %w", err)
