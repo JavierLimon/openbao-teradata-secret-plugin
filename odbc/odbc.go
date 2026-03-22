@@ -13,6 +13,9 @@ import (
 	"time"
 
 	"github.com/JavierLimon/openbao-teradata-secret-plugin/tracing"
+
+	// Register ODBC driver - this is required for sql.Open("odbc", ...) to work
+	_ "github.com/alexbrainman/odbc"
 )
 
 var (
@@ -701,7 +704,7 @@ func applyResultLimit(query string, limit int) string {
 
 func CreateUser(ctx context.Context, db *sql.DB, username, password, defaultDB string, permSpace int64) error {
 	query := fmt.Sprintf(
-		"CREATE USER %s FROM DBC AS PASSWORD = %s DEFAULT DATABASE = %s PERM = %d",
+		"CREATE USER %s FROM DBC AS PASSWORD = '%s' DEFAULT DATABASE = %s PERM = %d",
 		username,
 		password,
 		defaultDB,
@@ -746,7 +749,7 @@ func RevokePrivileges(ctx context.Context, db *sql.DB, username, database string
 }
 
 func AlterUserPassword(ctx context.Context, db *sql.DB, username, newPassword string) error {
-	query := fmt.Sprintf("MODIFY USER %s AS PASSWORD = %s", username, newPassword)
+	query := fmt.Sprintf("MODIFY USER %s AS PASSWORD = '%s'", username, newPassword)
 	_, err := db.ExecContext(ctx, query)
 	if err != nil {
 		return fmt.Errorf("failed to alter user password for %s: %w", username, err)

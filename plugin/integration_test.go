@@ -26,7 +26,7 @@ var (
 	integrationHost     = getEnv("TERADATA_HOST", "testing-rhjbbw139fee5yg7.env.clearscape.teradata.com")
 	integrationUser     = getEnv("TERADATA_USER", "demo_user")
 	integrationPassword = getEnv("TERADATA_PASSWORD", "latve1ja")
-	integrationDSN      = getEnv("TERADATA_DSN", "Teradata")
+	integrationDSN      = getEnv("TERADATA_DSN", "Teradata ODBC DSN")
 )
 
 func getIntegrationEnv(key, defaultValue string) string {
@@ -37,7 +37,7 @@ func getIntegrationEnv(key, defaultValue string) string {
 }
 
 func getIntegrationConnectionString() string {
-	return fmt.Sprintf("DSN=%s;UID=%s;PWD=%s;", integrationDSN, integrationUser, integrationPassword)
+	return fmt.Sprintf("DSN=Teradata ODBC DSN;DBCName=%s;UID=%s;PWD=%s;", integrationHost, integrationUser, integrationPassword)
 }
 
 type integrationStorage struct {
