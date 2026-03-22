@@ -1,0 +1,51 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    cluster: 'teradata-plugin'
+    environment: 'production'
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: []
+
+rule_files:
+  - 'alerts/*.yml'
+
+scrape_configs:
+  - job_name: 'openbao-teradata-secret-plugin'
+    metrics_path: '/v1/teradata/metrics'
+    scheme: 'https'
+    static_configs:
+      - targets:
+          - 'localhost:8200'
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+        replacement: 'teradata-plugin-01'
+      - source_labels: [__metrics_path__]
+        target_label: metrics_path
+    bearer_token_file: /etc/prometheus/token
+    tls_config:
+      insecure_skip_verify: false
+      ca_file: /etc/prometheus/ca.pem
+      cert_file: /etc/prometheus/cert.pem
+      key_file: /etc/prometheus/key.pem
+
+  - job_name: 'openbao-teradata-secret-plugin-pool-stats'
+    metrics_path: '/v1/teradata/pool-stats'
+    scheme: 'https'
+    static_configs:
+      - targets:
+          - 'localhost:8200'
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+        replacement: 'teradata-plugin-pool-stats-01'
+
+  - job_name: 'openbao'
+    static_configs:
+      - targets:
+          - 'localhost:8201'
+    metrics_path: '/v1/sys/metrics'
