@@ -125,12 +125,25 @@ func (b *Backend) pathStaticRoleCreate(ctx context.Context, req *logical.Request
 	rotationWindow := data.Get("rotation_window").(int)
 	rotationStatements := data.Get("rotation_statements").([]string)
 
-	cfg, err := getConfig(ctx, req.Storage)
-	if err != nil {
-		return nil, err
-	}
-	if cfg == nil {
-		return nil, fmt.Errorf("database configuration not found")
+	var cfg *models.Config
+	var err error
+
+	if dbName != "" {
+		cfg, err = getConfigByName(ctx, req.Storage, dbName)
+		if err != nil {
+			return nil, err
+		}
+		if cfg == nil {
+			return nil, fmt.Errorf("database configuration %q not found", dbName)
+		}
+	} else {
+		cfg, err = getConfig(ctx, req.Storage)
+		if err != nil {
+			return nil, err
+		}
+		if cfg == nil {
+			return nil, fmt.Errorf("database configuration not found")
+		}
 	}
 
 	if err := teradb.ValidateUsername(username); err != nil {

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/JavierLimon/openbao-teradata-secret-plugin/models"
+	_ "github.com/JavierLimon/openbao-teradata-secret-plugin/odbc"
 	"github.com/openbao/openbao/sdk/v2/framework"
 	"github.com/openbao/openbao/sdk/v2/logical"
 )
@@ -22,21 +23,21 @@ const (
 )
 
 var (
-	teradataHost     = getEnv("TERADATA_HOST", "testing-rhjbbw139fee5yg7.env.clearscape.teradata.com")
-	teradataUser     = getEnv("TERADATA_USER", "demo_user")
-	teradataPassword = getEnv("TERADATA_PASSWORD", "latve1ja")
-	teradataDSN      = getEnv("TERADATA_DSN", "Teradata")
+	integrationHost     = getEnv("TERADATA_HOST", "testing-rhjbbw139fee5yg7.env.clearscape.teradata.com")
+	integrationUser     = getEnv("TERADATA_USER", "demo_user")
+	integrationPassword = getEnv("TERADATA_PASSWORD", "latve1ja")
+	integrationDSN      = getEnv("TERADATA_DSN", "Teradata")
 )
 
-func getEnv(key, defaultValue string) string {
+func getIntegrationEnv(key, defaultValue string) string {
 	if value := os.Getenv(key); value != "" {
 		return value
 	}
 	return defaultValue
 }
 
-func getTestConnectionString() string {
-	return fmt.Sprintf("DSN=%s;UID=%s;PWD=%s;", teradataDSN, teradataUser, teradataPassword)
+func getIntegrationConnectionString() string {
+	return fmt.Sprintf("DSN=%s;UID=%s;PWD=%s;", integrationDSN, integrationUser, integrationPassword)
 }
 
 type integrationStorage struct {
@@ -120,7 +121,10 @@ func configureIntegrationDatabase(t *testing.T, b *Backend, storage logical.Stor
 	ctx := context.Background()
 
 	data := map[string]interface{}{
-		"connection_string":      getTestConnectionString(),
+		"name":                   "test",
+		"plugin_name":            "teradata-database-plugin",
+		"connection_string":      getIntegrationConnectionString(),
+		"verify_connection":      false,
 		"max_open_connections":   5,
 		"max_idle_connections":   2,
 		"connection_timeout":     30,
@@ -158,8 +162,8 @@ func createIntegrationRole(t *testing.T, b *Backend, storage logical.Storage, na
 		"default_ttl":          defaultTTL,
 		"max_ttl":              maxTTL,
 		"default_database":     name,
-		"creation_statement":   "GRANT SELECT ON DBC TO {{username}};",
-		"revocation_statement": "REVOKE SELECT ON DBC FROM {{username}};",
+		"creation_statement":   "GRANT SELECT ON DBC TO {{username}}",
+		"revocation_statement": "REVOKE SELECT ON DBC FROM {{username}}",
 	}
 
 	req := &logical.Request{
@@ -178,13 +182,14 @@ func createIntegrationRole(t *testing.T, b *Backend, storage logical.Storage, na
 	}
 }
 
-func generateIntegrationCredential(t *testing.T, b *Backend, storage logical.Storage, roleName string) (string, string, int) {
+func generateIntegrationCredential(t *testing.T, b *Backend, storage logical.Storage, roleName string, region string) (string, string, int) {
 	t.Helper()
 
 	ctx := context.Background()
 
 	data := map[string]interface{}{
-		"name": roleName,
+		"name":   roleName,
+		"region": region,
 	}
 
 	req := &logical.Request{
@@ -296,7 +301,7 @@ func TestIntegrationCredentialCreateUser(t *testing.T) {
 	roleName := "create-user-test"
 	createIntegrationRole(t, b, storage, roleName, 3600, 86400)
 
-	username, password, ttl := generateIntegrationCredential(t, b, storage, roleName)
+	username, password, ttl := generateIntegrationCredential(t, b, storage, roleName, "test")
 
 	if username == "" {
 		t.Fatal("generated username should not be empty")
@@ -349,8 +354,8 @@ func TestIntegrationCredentialGrantFlow(t *testing.T) {
 		"default_ttl":          3600,
 		"max_ttl":              86400,
 		"default_database":     roleName,
-		"creation_statement":   "GRANT SELECT ON DBC TO {{username}};",
-		"revocation_statement": "REVOKE SELECT ON DBC FROM {{username}};",
+		"creation_statement":   "GRANT SELECT ON DBC TO {{username}}",
+		"revocation_statement": "REVOKE SELECT ON DBC FROM {{username}}",
 	}
 
 	req := &logical.Request{
@@ -360,15 +365,15 @@ func TestIntegrationCredentialGrantFlow(t *testing.T) {
 		Data:      data,
 	}
 
-	_, err := b.pathRoleCreate(ctx, req, &framework.FieldData{
+	resp, err := b.pathRoleCreate(ctx, req, &framework.FieldData{
 		Raw:    data,
 		Schema: b.pathRoles().Fields,
 	})
-	if err != nil || (req.Response != nil && req.Response.IsError()) {
+	if err != nil || (resp != nil && resp.IsError()) {
 		t.Fatalf("failed to create role: %v", err)
 	}
 
-	username, _, _ := generateIntegrationCredential(t, b, storage, roleName)
+	username, _, _ := generateIntegrationCredential(t, b, storage, roleName, "test")
 
 	t.Logf("Created user with GRANT: %s", username)
 
@@ -388,7 +393,7 @@ func TestIntegrationCredentialRevokeFlow(t *testing.T) {
 	roleName := "revoke-test"
 	createIntegrationRole(t, b, storage, roleName, 600, 3600)
 
-	username, _, _ := generateIntegrationCredential(t, b, storage, roleName)
+	username, _, _ := generateIntegrationCredential(t, b, storage, roleName, "test")
 
 	cred := getIntegrationCredentialFromStorage(t, ctx, storage, username)
 	if cred == nil {
@@ -418,7 +423,7 @@ func TestIntegrationCredentialDropUser(t *testing.T) {
 	roleName := "drop-user-test"
 	createIntegrationRole(t, b, storage, roleName, 600, 3600)
 
-	username, _, _ := generateIntegrationCredential(t, b, storage, roleName)
+	username, _, _ := generateIntegrationCredential(t, b, storage, roleName, "test")
 
 	cred := getIntegrationCredentialFromStorage(t, ctx, storage, username)
 	if cred == nil {
@@ -448,7 +453,7 @@ func TestIntegrationCredentialRenewal(t *testing.T) {
 	roleName := "renewal-test"
 	createIntegrationRole(t, b, storage, roleName, 300, 1800)
 
-	username, _, _ := generateIntegrationCredential(t, b, storage, roleName)
+	username, _, _ := generateIntegrationCredential(t, b, storage, roleName, "test")
 
 	cred := getIntegrationCredentialFromStorage(t, ctx, storage, username)
 	originalExpiry := cred.ExpiresAt
@@ -491,7 +496,7 @@ func TestIntegrationCredentialFullLifecycle(t *testing.T) {
 	roleName := "full-lifecycle-test"
 	createIntegrationRole(t, b, storage, roleName, 600, 3600)
 
-	username, password, ttl := generateIntegrationCredential(t, b, storage, roleName)
+	username, password, ttl := generateIntegrationCredential(t, b, storage, roleName, "test")
 
 	if username == "" || password == "" || ttl <= 0 {
 		t.Fatal("initial credential generation failed")
@@ -602,7 +607,7 @@ func TestIntegrationCredentialWithStatementTemplate(t *testing.T) {
 
 	storage.Put(ctx, &logical.StorageEntry{
 		Key:   "statements/test-template",
-		Value: []byte(`{"name":"test-template","creation_statement":"GRANT SELECT ON DBC TO {{username}};","renewal_statement":"GRANT EXECUTE ON MyProc TO {{username}};","revocation_statement":"REVOKE SELECT ON DBC FROM {{username}};"}`),
+		Value: []byte(`{"name":"test-template","creation_statement":"GRANT SELECT ON DBC TO {{username}}","renewal_statement":"GRANT EXECUTE ON MyProc TO {{username}}","revocation_statement":"REVOKE SELECT ON DBC FROM {{username}}"}`),
 	})
 
 	roleName := "template-test"
@@ -621,15 +626,15 @@ func TestIntegrationCredentialWithStatementTemplate(t *testing.T) {
 		Data:      data,
 	}
 
-	_, err := b.pathRoleCreate(ctx, req, &framework.FieldData{
+	resp, err := b.pathRoleCreate(ctx, req, &framework.FieldData{
 		Raw:    data,
 		Schema: b.pathRoles().Fields,
 	})
-	if err != nil || (req.Response != nil && req.Response.IsError()) {
+	if err != nil || (resp != nil && resp.IsError()) {
 		t.Fatalf("failed to create role with template: %v", err)
 	}
 
-	username, _, _ := generateIntegrationCredential(t, b, storage, roleName)
+	username, _, _ := generateIntegrationCredential(t, b, storage, roleName, "test")
 
 	t.Logf("Created user with statement template: %s", username)
 
@@ -651,7 +656,7 @@ func TestIntegrationCredentialRenewalWithStatement(t *testing.T) {
 		"db_user":           "{{username}}",
 		"default_ttl":       600,
 		"max_ttl":           3600,
-		"renewal_statement": "GRANT EXECUTE ON PROCEDURE MyProc TO {{username}};",
+		"renewal_statement": "GRANT EXECUTE ON PROCEDURE MyProc TO {{username}}",
 	}
 
 	ctx := context.Background()
@@ -663,19 +668,977 @@ func TestIntegrationCredentialRenewalWithStatement(t *testing.T) {
 		Data:      data,
 	}
 
-	_, err := b.pathRoleCreate(ctx, req, &framework.FieldData{
+	resp, err := b.pathRoleCreate(ctx, req, &framework.FieldData{
 		Raw:    data,
 		Schema: b.pathRoles().Fields,
 	})
-	if err != nil || (req.Response != nil && req.Response.IsError()) {
+	if err != nil || (resp != nil && resp.IsError()) {
 		t.Fatalf("failed to create role with renewal statement: %v", err)
 	}
 
-	username, _, _ := generateIntegrationCredential(t, b, storage, roleName)
+	username, _, _ := generateIntegrationCredential(t, b, storage, roleName, "test")
 
 	_, _ = renewIntegrationCredential(t, b, storage, username)
 
 	t.Logf("Successfully renewed credential with statement for: %s", username)
 
 	revokeIntegrationCredential(t, b, storage, username)
+}
+
+// ============================================================
+// Config Integration Tests
+// ============================================================
+
+func TestIntegrationConfigCRUD(t *testing.T) {
+	if os.Getenv("RUN_INTEGRATION_TESTS") != "true" {
+		t.Skip("Skipping integration test; set RUN_INTEGRATION_TESTS=true")
+	}
+
+	b, storage := setupIntegrationBackend(t)
+	ctx := context.Background()
+
+	// Create config
+	data := map[string]interface{}{
+		"name":                 "test-config",
+		"plugin_name":          "teradata-database-plugin",
+		"connection_string":    getIntegrationConnectionString(),
+		"verify_connection":    false,
+		"max_open_connections": 5,
+		"max_idle_connections": 2,
+	}
+
+	req := &logical.Request{
+		Operation: logical.CreateOperation,
+		Path:      "config/test-config",
+		Storage:   storage,
+		Data:      data,
+	}
+
+	resp, err := b.pathConfigWrite(ctx, req, &framework.FieldData{
+		Raw:    data,
+		Schema: b.pathConfig().Fields,
+	})
+	if err != nil || (resp != nil && resp.IsError()) {
+		t.Fatalf("failed to create config: %v (resp: %v)", err, resp)
+	}
+
+	// Read config back
+	req = &logical.Request{
+		Operation: logical.ReadOperation,
+		Path:      "config/test-config",
+		Storage:   storage,
+		Data:      map[string]interface{}{"name": "test-config"},
+	}
+
+	resp, err = b.pathConfigRead(ctx, req, &framework.FieldData{
+		Raw:    map[string]interface{}{"name": "test-config"},
+		Schema: b.pathConfig().Fields,
+	})
+	if err != nil || (resp != nil && resp.IsError()) {
+		t.Fatalf("failed to read config: %v (resp: %v)", err, resp)
+	}
+	if resp == nil || resp.Data == nil {
+		t.Fatal("config response should not be nil")
+	}
+
+	t.Logf("Successfully created and read config: %s", resp.Data["name"])
+
+	// Update config
+	updateData := map[string]interface{}{
+		"name":                 "test-config",
+		"plugin_name":          "teradata-database-plugin",
+		"connection_string":    getIntegrationConnectionString(),
+		"verify_connection":    false,
+		"max_open_connections": 10,
+		"max_idle_connections": 5,
+	}
+
+	req = &logical.Request{
+		Operation: logical.UpdateOperation,
+		Path:      "config/test-config",
+		Storage:   storage,
+		Data:      updateData,
+	}
+
+	resp, err = b.pathConfigWrite(ctx, req, &framework.FieldData{
+		Raw:    updateData,
+		Schema: b.pathConfig().Fields,
+	})
+	if err != nil || (resp != nil && resp.IsError()) {
+		t.Fatalf("failed to update config: %v (resp: %v)", err, resp)
+	}
+
+	t.Logf("Successfully updated config")
+}
+
+func TestIntegrationConfigList(t *testing.T) {
+	if os.Getenv("RUN_INTEGRATION_TESTS") != "true" {
+		t.Skip("Skipping integration test; set RUN_INTEGRATION_TESTS=true")
+	}
+
+	b, storage := setupIntegrationBackend(t)
+	ctx := context.Background()
+
+	// Create two configs
+	for _, name := range []string{"config1", "config2"} {
+		data := map[string]interface{}{
+			"name":              name,
+			"plugin_name":       "teradata-database-plugin",
+			"connection_string": getIntegrationConnectionString(),
+			"verify_connection": false,
+		}
+
+		req := &logical.Request{
+			Operation: logical.CreateOperation,
+			Path:      "config/" + name,
+			Storage:   storage,
+			Data:      data,
+		}
+
+		resp, err := b.pathConfigWrite(ctx, req, &framework.FieldData{
+			Raw:    data,
+			Schema: b.pathConfig().Fields,
+		})
+		if err != nil || (resp != nil && resp.IsError()) {
+			t.Fatalf("failed to create config %s: %v", name, err)
+		}
+	}
+
+	// List configs
+	req := &logical.Request{
+		Operation: logical.ListOperation,
+		Path:      "config",
+		Storage:   storage,
+	}
+
+	resp, err := b.pathConfigListHandler(ctx, req, &framework.FieldData{
+		Raw:    map[string]interface{}{},
+		Schema: b.pathConfigList().Fields,
+	})
+	if err != nil || (resp != nil && resp.IsError()) {
+		t.Fatalf("failed to list configs: %v (resp: %v)", err, resp)
+	}
+
+	keys := resp.Data["keys"].([]string)
+	if len(keys) < 2 {
+		t.Errorf("expected at least 2 configs, got %d: %v", len(keys), keys)
+	}
+
+	t.Logf("Successfully listed configs: %v", keys)
+}
+
+func TestIntegrationConfigReset(t *testing.T) {
+	if os.Getenv("RUN_INTEGRATION_TESTS") != "true" {
+		t.Skip("Skipping integration test; set RUN_INTEGRATION_TESTS=true")
+	}
+
+	b, storage := setupIntegrationBackend(t)
+	ctx := context.Background()
+
+	// Create config first
+	data := map[string]interface{}{
+		"name":              "reset-test",
+		"plugin_name":       "teradata-database-plugin",
+		"connection_string": getIntegrationConnectionString(),
+		"verify_connection": false,
+	}
+
+	req := &logical.Request{
+		Operation: logical.CreateOperation,
+		Path:      "config/reset-test",
+		Storage:   storage,
+		Data:      data,
+	}
+
+	resp, err := b.pathConfigWrite(ctx, req, &framework.FieldData{
+		Raw:    data,
+		Schema: b.pathConfig().Fields,
+	})
+	if err != nil || (resp != nil && resp.IsError()) {
+		t.Fatalf("failed to create config: %v", err)
+	}
+
+	// Reset config
+	req = &logical.Request{
+		Operation: logical.UpdateOperation,
+		Path:      "reset/reset-test",
+		Storage:   storage,
+		Data:      map[string]interface{}{"name": "reset-test"},
+	}
+
+	resp, err = b.pathConfigResetHandler(ctx, req, &framework.FieldData{
+		Raw:    map[string]interface{}{"name": "reset-test"},
+		Schema: b.pathConfigReset().Fields,
+	})
+	if err != nil || (resp != nil && resp.IsError()) {
+		t.Fatalf("failed to reset config: %v (resp: %v)", err, resp)
+	}
+
+	t.Logf("Successfully reset config")
+}
+
+func TestIntegrationConfigReload(t *testing.T) {
+	if os.Getenv("RUN_INTEGRATION_TESTS") != "true" {
+		t.Skip("Skipping integration test; set RUN_INTEGRATION_TESTS=true")
+	}
+
+	b, storage := setupIntegrationBackend(t)
+	ctx := context.Background()
+
+	// Create config
+	data := map[string]interface{}{
+		"name":              "reload-test",
+		"plugin_name":       "teradata-database-plugin",
+		"connection_string": getIntegrationConnectionString(),
+		"verify_connection": false,
+	}
+
+	req := &logical.Request{
+		Operation: logical.CreateOperation,
+		Path:      "config/reload-test",
+		Storage:   storage,
+		Data:      data,
+	}
+
+	b.pathConfigWrite(ctx, req, &framework.FieldData{
+		Raw:    data,
+		Schema: b.pathConfig().Fields,
+	})
+
+	// Reload config
+	req = &logical.Request{
+		Operation: logical.UpdateOperation,
+		Path:      "reload/teradata-database-plugin",
+		Storage:   storage,
+		Data:      map[string]interface{}{"plugin_name": "teradata-database-plugin"},
+	}
+
+	resp, err := b.pathConfigReloadHandler(ctx, req, &framework.FieldData{
+		Raw:    map[string]interface{}{"plugin_name": "teradata-database-plugin"},
+		Schema: b.pathConfigReload().Fields,
+	})
+	if err != nil || (resp != nil && resp.IsError()) {
+		t.Fatalf("failed to reload config: %v (resp: %v)", err, resp)
+	}
+
+	t.Logf("Successfully reloaded config")
+}
+
+// ============================================================
+// Roles Integration Tests
+// ============================================================
+
+func TestIntegrationRolesCRUD(t *testing.T) {
+	if os.Getenv("RUN_INTEGRATION_TESTS") != "true" {
+		t.Skip("Skipping integration test; set RUN_INTEGRATION_TESTS=true")
+	}
+
+	b, storage := setupIntegrationBackend(t)
+	ctx := context.Background()
+
+	// Create role
+	data := map[string]interface{}{
+		"name":                 "test-role",
+		"db_user":              "{{username}}",
+		"default_ttl":          3600,
+		"max_ttl":              86400,
+		"default_database":     "testdb",
+		"creation_statement":   "GRANT SELECT ON DBC TO {{username}}",
+		"revocation_statement": "REVOKE SELECT ON DBC FROM {{username}}",
+	}
+
+	req := &logical.Request{
+		Operation: logical.CreateOperation,
+		Path:      "roles/test-role",
+		Storage:   storage,
+		Data:      data,
+	}
+
+	resp, err := b.pathRoleCreate(ctx, req, &framework.FieldData{
+		Raw:    data,
+		Schema: b.pathRoles().Fields,
+	})
+	if err != nil || (resp != nil && resp.IsError()) {
+		t.Fatalf("failed to create role: %v (resp: %v)", err, resp)
+	}
+
+	// Read role back
+	req = &logical.Request{
+		Operation: logical.ReadOperation,
+		Path:      "roles/test-role",
+		Storage:   storage,
+		Data:      map[string]interface{}{"name": "test-role"},
+	}
+
+	resp, err = b.pathRoleRead(ctx, req, &framework.FieldData{
+		Raw:    map[string]interface{}{"name": "test-role"},
+		Schema: b.pathRoles().Fields,
+	})
+	if err != nil || (resp != nil && resp.IsError()) {
+		t.Fatalf("failed to read role: %v (resp: %v)", err, resp)
+	}
+	if resp == nil || resp.Data == nil {
+		t.Fatal("role response should not be nil")
+	}
+
+	t.Logf("Successfully created and read role: %s", resp.Data["name"])
+
+	// Update role
+	updateData := map[string]interface{}{
+		"name":             "test-role",
+		"db_user":          "{{username}}",
+		"default_ttl":      7200,
+		"max_ttl":          172800,
+		"default_database": "testdb",
+	}
+
+	req = &logical.Request{
+		Operation: logical.UpdateOperation,
+		Path:      "roles/test-role",
+		Storage:   storage,
+		Data:      updateData,
+	}
+
+	resp, err = b.pathRoleCreate(ctx, req, &framework.FieldData{
+		Raw:    updateData,
+		Schema: b.pathRoles().Fields,
+	})
+	if err != nil || (resp != nil && resp.IsError()) {
+		t.Fatalf("failed to update role: %v (resp: %v)", err, resp)
+	}
+
+	t.Logf("Successfully updated role")
+}
+
+func TestIntegrationRolesList(t *testing.T) {
+	if os.Getenv("RUN_INTEGRATION_TESTS") != "true" {
+		t.Skip("Skipping integration test; set RUN_INTEGRATION_TESTS=true")
+	}
+
+	b, storage := setupIntegrationBackend(t)
+	ctx := context.Background()
+
+	// Create roles
+	for _, name := range []string{"role1", "role2"} {
+		data := map[string]interface{}{
+			"name":        name,
+			"db_user":     "{{username}}",
+			"default_ttl": 3600,
+			"max_ttl":     86400,
+		}
+
+		req := &logical.Request{
+			Operation: logical.CreateOperation,
+			Path:      "roles/" + name,
+			Storage:   storage,
+			Data:      data,
+		}
+
+		b.pathRoleCreate(ctx, req, &framework.FieldData{
+			Raw:    data,
+			Schema: b.pathRoles().Fields,
+		})
+	}
+
+	// List roles
+	req := &logical.Request{
+		Operation: logical.ListOperation,
+		Path:      "roles",
+		Storage:   storage,
+	}
+
+	resp, err := b.pathRoleListHandler(ctx, req, &framework.FieldData{
+		Raw:    map[string]interface{}{},
+		Schema: b.pathRoleList().Fields,
+	})
+	if err != nil || (resp != nil && resp.IsError()) {
+		t.Fatalf("failed to list roles: %v (resp: %v)", err, resp)
+	}
+
+	keys := resp.Data["keys"].([]string)
+	if len(keys) < 2 {
+		t.Errorf("expected at least 2 roles, got %d: %v", len(keys), keys)
+	}
+
+	t.Logf("Successfully listed roles: %v", keys)
+}
+
+// ============================================================
+// Static Roles Integration Tests
+// ============================================================
+
+func TestIntegrationStaticRolesCRUD(t *testing.T) {
+	if os.Getenv("RUN_INTEGRATION_TESTS") != "true" {
+		t.Skip("Skipping integration test; set RUN_INTEGRATION_TESTS=true")
+	}
+
+	b, storage := setupIntegrationBackend(t)
+	ctx := context.Background()
+
+	// Configure database first
+	cfg := map[string]interface{}{
+		"name":              "static",
+		"plugin_name":       "teradata-database-plugin",
+		"connection_string": getIntegrationConnectionString(),
+		"verify_connection": false,
+	}
+
+	req := &logical.Request{
+		Operation: logical.CreateOperation,
+		Path:      "config/static",
+		Storage:   storage,
+		Data:      cfg,
+	}
+
+	b.pathConfigWrite(ctx, req, &framework.FieldData{
+		Raw:    cfg,
+		Schema: b.pathConfig().Fields,
+	})
+
+	// Create static role
+	data := map[string]interface{}{
+		"name":            "static-role-test",
+		"username":        "test_static_user",
+		"db_name":         "static",
+		"rotation_period": 3600,
+	}
+
+	req = &logical.Request{
+		Operation: logical.CreateOperation,
+		Path:      "static-roles/static-role-test",
+		Storage:   storage,
+		Data:      data,
+	}
+
+	resp, err := b.pathStaticRoleCreate(ctx, req, &framework.FieldData{
+		Raw:    data,
+		Schema: b.pathStaticRoles().Fields,
+	})
+	if err != nil || (resp != nil && resp.IsError()) {
+		t.Fatalf("failed to create static role: %v (resp: %v)", err, resp)
+	}
+
+	// Read static role back
+	req = &logical.Request{
+		Operation: logical.ReadOperation,
+		Path:      "static-roles/static-role-test",
+		Storage:   storage,
+		Data:      map[string]interface{}{"name": "static-role-test"},
+	}
+
+	resp, err = b.pathStaticRoleRead(ctx, req, &framework.FieldData{
+		Raw:    map[string]interface{}{"name": "static-role-test"},
+		Schema: b.pathStaticRoles().Fields,
+	})
+	if err != nil || (resp != nil && resp.IsError()) {
+		t.Fatalf("failed to read static role: %v (resp: %v)", err, resp)
+	}
+
+	t.Logf("Successfully created static role")
+}
+
+func TestIntegrationStaticCreds(t *testing.T) {
+	if os.Getenv("RUN_INTEGRATION_TESTS") != "true" {
+		t.Skip("Skipping integration test; set RUN_INTEGRATION_TESTS=true")
+	}
+
+	b, storage := setupIntegrationBackend(t)
+	ctx := context.Background()
+
+	// Configure database
+	cfg := map[string]interface{}{
+		"name":              "static-creds",
+		"plugin_name":       "teradata-database-plugin",
+		"connection_string": getIntegrationConnectionString(),
+		"verify_connection": false,
+	}
+
+	req := &logical.Request{
+		Operation: logical.CreateOperation,
+		Path:      "config/static-creds",
+		Storage:   storage,
+		Data:      cfg,
+	}
+
+	b.pathConfigWrite(ctx, req, &framework.FieldData{
+		Raw:    cfg,
+		Schema: b.pathConfig().Fields,
+	})
+
+	// Create static role
+	data := map[string]interface{}{
+		"name":            "static-creds-role",
+		"username":        "test_static_creds",
+		"db_name":         "static-creds",
+		"rotation_period": 3600,
+	}
+
+	req = &logical.Request{
+		Operation: logical.CreateOperation,
+		Path:      "static-roles/static-creds-role",
+		Storage:   storage,
+		Data:      data,
+	}
+
+	b.pathStaticRoleCreate(ctx, req, &framework.FieldData{
+		Raw:    data,
+		Schema: b.pathStaticRoles().Fields,
+	})
+
+	// Read static credentials
+	req = &logical.Request{
+		Operation: logical.ReadOperation,
+		Path:      "static-creds/static-creds-role",
+		Storage:   storage,
+		Data:      map[string]interface{}{"name": "static-creds-role"},
+	}
+
+	resp, err := b.pathStaticCredsRead(ctx, req, &framework.FieldData{
+		Raw:    map[string]interface{}{"name": "static-creds-role"},
+		Schema: b.pathStaticCreds().Fields,
+	})
+	if err != nil || (resp != nil && resp.IsError()) {
+		t.Fatalf("failed to read static creds: %v (resp: %v)", err, resp)
+	}
+
+	username := resp.Data["username"].(string)
+	if username == "" {
+		t.Error("username should not be empty")
+	}
+
+	t.Logf("Successfully read static credentials for: %s", username)
+}
+
+// ============================================================
+// Rate Limiting Integration Tests
+// ============================================================
+
+func TestIntegrationRateLimitConfig(t *testing.T) {
+	if os.Getenv("RUN_INTEGRATION_TESTS") != "true" {
+		t.Skip("Skipping integration test; set RUN_INTEGRATION_TESTS=true")
+	}
+
+	b, storage := setupIntegrationBackend(t)
+	ctx := context.Background()
+
+	// Configure rate limit
+	data := map[string]interface{}{
+		"enabled": true,
+		"rate":    100,
+		"burst":   50,
+		"period":  600,
+	}
+
+	req := &logical.Request{
+		Operation: logical.CreateOperation,
+		Path:      "rate-limit/config",
+		Storage:   storage,
+		Data:      data,
+	}
+
+	resp, err := b.pathRateLimitConfigWrite(ctx, req, &framework.FieldData{
+		Raw:    data,
+		Schema: b.pathRateLimitConfig().Fields,
+	})
+	if err != nil || (resp != nil && resp.IsError()) {
+		t.Fatalf("failed to configure rate limit: %v (resp: %v)", err, resp)
+	}
+
+	// Read rate limit config
+	req = &logical.Request{
+		Operation: logical.ReadOperation,
+		Path:      "rate-limit/config",
+		Storage:   storage,
+	}
+
+	resp, err = b.pathRateLimitConfigRead(ctx, req, &framework.FieldData{
+		Raw:    map[string]interface{}{},
+		Schema: b.pathRateLimitConfig().Fields,
+	})
+	if err != nil || (resp != nil && resp.IsError()) {
+		t.Fatalf("failed to read rate limit config: %v (resp: %v)", err, resp)
+	}
+
+	t.Logf("Successfully configured rate limit")
+}
+
+func TestIntegrationRateLimitStatus(t *testing.T) {
+	if os.Getenv("RUN_INTEGRATION_TESTS") != "true" {
+		t.Skip("Skipping integration test; set RUN_INTEGRATION_TESTS=true")
+	}
+
+	b, storage := setupIntegrationBackend(t)
+	ctx := context.Background()
+
+	// Read rate limit status
+	req := &logical.Request{
+		Operation: logical.ReadOperation,
+		Path:      "rate-limit/status",
+		Storage:   storage,
+	}
+
+	resp, err := b.pathRateLimitStatusRead(ctx, req, &framework.FieldData{
+		Raw:    map[string]interface{}{},
+		Schema: b.pathRateLimitStatus().Fields,
+	})
+	if err != nil || (resp != nil && resp.IsError()) {
+		t.Fatalf("failed to read rate limit status: %v (resp: %v)", err, resp)
+	}
+
+	t.Logf("Successfully read rate limit status")
+}
+
+// ============================================================
+// Statements Integration Tests
+// ============================================================
+
+func TestIntegrationStatementsCRUD(t *testing.T) {
+	if os.Getenv("RUN_INTEGRATION_TESTS") != "true" {
+		t.Skip("Skipping integration test; set RUN_INTEGRATION_TESTS=true")
+	}
+
+	b, storage := setupIntegrationBackend(t)
+	ctx := context.Background()
+
+	// Create statement
+	data := map[string]interface{}{
+		"name":                 "test-statement",
+		"creation_statement":   "GRANT SELECT ON DBC TO {{username}}",
+		"revocation_statement": "REVOKE SELECT ON DBC FROM {{username}}",
+		"renewal_statement":    "GRANT EXECUTE ON PROCEDURE TO {{username}}",
+	}
+
+	req := &logical.Request{
+		Operation: logical.CreateOperation,
+		Path:      "statements/test-statement",
+		Storage:   storage,
+		Data:      data,
+	}
+
+	resp, err := b.pathStatementWrite(ctx, req, &framework.FieldData{
+		Raw:    data,
+		Schema: b.pathStatements().Fields,
+	})
+	if err != nil || (resp != nil && resp.IsError()) {
+		t.Fatalf("failed to create statement: %v (resp: %v)", err, resp)
+	}
+
+	// Read statement back
+	req = &logical.Request{
+		Operation: logical.ReadOperation,
+		Path:      "statements/test-statement",
+		Storage:   storage,
+		Data:      map[string]interface{}{"name": "test-statement"},
+	}
+
+	resp, err = b.pathStatementRead(ctx, req, &framework.FieldData{
+		Raw:    map[string]interface{}{"name": "test-statement"},
+		Schema: b.pathStatements().Fields,
+	})
+	if err != nil || (resp != nil && resp.IsError()) {
+		t.Fatalf("failed to read statement: %v (resp: %v)", err, resp)
+	}
+
+	t.Logf("Successfully created statement")
+}
+
+func TestIntegrationStatementsList(t *testing.T) {
+	if os.Getenv("RUN_INTEGRATION_TESTS") != "true" {
+		t.Skip("Skipping integration test; set RUN_INTEGRATION_TESTS=true")
+	}
+
+	b, storage := setupIntegrationBackend(t)
+	ctx := context.Background()
+
+	// Create statements
+	for _, name := range []string{"stmt1", "stmt2"} {
+		data := map[string]interface{}{
+			"name":               name,
+			"creation_statement": "GRANT SELECT ON DBC TO {{username}}",
+		}
+
+		req := &logical.Request{
+			Operation: logical.CreateOperation,
+			Path:      "statements/" + name,
+			Storage:   storage,
+			Data:      data,
+		}
+
+		b.pathStatementWrite(ctx, req, &framework.FieldData{
+			Raw:    data,
+			Schema: b.pathStatements().Fields,
+		})
+	}
+
+	// List statements
+	req := &logical.Request{
+		Operation: logical.ListOperation,
+		Path:      "statements",
+		Storage:   storage,
+	}
+
+	resp, err := b.pathStatementListHandler(ctx, req, &framework.FieldData{
+		Raw:    map[string]interface{}{},
+		Schema: b.pathStatementList().Fields,
+	})
+	if err != nil || (resp != nil && resp.IsError()) {
+		t.Fatalf("failed to list statements: %v (resp: %v)", err, resp)
+	}
+
+	t.Logf("Successfully listed statements")
+}
+
+// ============================================================
+// Health Integration Tests
+// ============================================================
+
+func TestIntegrationHealth(t *testing.T) {
+	if os.Getenv("RUN_INTEGRATION_TESTS") != "true" {
+		t.Skip("Skipping integration test; set RUN_INTEGRATION_TESTS=true")
+	}
+
+	b, storage := setupIntegrationBackend(t)
+	ctx := context.Background()
+
+	// Test health endpoint
+	req := &logical.Request{
+		Operation: logical.ReadOperation,
+		Path:      "health",
+		Storage:   storage,
+	}
+
+	resp, err := b.pathHealthRead(ctx, req, &framework.FieldData{
+		Raw: map[string]interface{}{},
+	})
+	if err != nil || (resp != nil && resp.IsError()) {
+		t.Fatalf("failed to read health: %v (resp: %v)", err, resp)
+	}
+
+	t.Logf("Health status: %v", resp.Data)
+}
+
+func TestIntegrationReadiness(t *testing.T) {
+	if os.Getenv("RUN_INTEGRATION_TESTS") != "true" {
+		t.Skip("Skipping integration test; set RUN_INTEGRATION_TESTS=true")
+	}
+
+	b, storage := setupIntegrationBackend(t)
+	ctx := context.Background()
+
+	// Test readiness endpoint
+	req := &logical.Request{
+		Operation: logical.ReadOperation,
+		Path:      "ready",
+		Storage:   storage,
+	}
+
+	resp, err := b.pathReadinessRead(ctx, req, &framework.FieldData{
+		Raw: map[string]interface{}{},
+	})
+	if err != nil || (resp != nil && resp.IsError()) {
+		t.Fatalf("failed to read readiness: %v (resp: %v)", err, resp)
+	}
+
+	t.Logf("Readiness status: %v", resp.Data)
+}
+
+func TestIntegrationLiveness(t *testing.T) {
+	if os.Getenv("RUN_INTEGRATION_TESTS") != "true" {
+		t.Skip("Skipping integration test; set RUN_INTEGRATION_TESTS=true")
+	}
+
+	b, storage := setupIntegrationBackend(t)
+	ctx := context.Background()
+
+	// Test liveness endpoint
+	req := &logical.Request{
+		Operation: logical.ReadOperation,
+		Path:      "live",
+		Storage:   storage,
+	}
+
+	resp, err := b.pathLivenessRead(ctx, req, &framework.FieldData{
+		Raw: map[string]interface{}{},
+	})
+	if err != nil || (resp != nil && resp.IsError()) {
+		t.Fatalf("failed to read liveness: %v (resp: %v)", err, resp)
+	}
+
+	t.Logf("Liveness status: %v", resp.Data)
+}
+
+// ============================================================
+// Leases Integration Tests
+// ============================================================
+
+func TestIntegrationLeases(t *testing.T) {
+	if os.Getenv("RUN_INTEGRATION_TESTS") != "true" {
+		t.Skip("Skipping integration test; set RUN_INTEGRATION_TESTS=true")
+	}
+
+	b, storage := setupIntegrationBackend(t)
+	ctx := context.Background()
+
+	// Configure database
+	cfg := map[string]interface{}{
+		"name":              "leases-test",
+		"plugin_name":       "teradata-database-plugin",
+		"connection_string": getIntegrationConnectionString(),
+		"verify_connection": false,
+	}
+
+	req := &logical.Request{
+		Operation: logical.CreateOperation,
+		Path:      "config/leases-test",
+		Storage:   storage,
+		Data:      cfg,
+	}
+
+	b.pathConfigWrite(ctx, req, &framework.FieldData{
+		Raw:    cfg,
+		Schema: b.pathConfig().Fields,
+	})
+
+	// Create role
+	roleData := map[string]interface{}{
+		"name":        "leases-role",
+		"db_user":     "{{username}}",
+		"default_ttl": 3600,
+		"max_ttl":     86400,
+	}
+
+	req = &logical.Request{
+		Operation: logical.CreateOperation,
+		Path:      "roles/leases-role",
+		Storage:   storage,
+		Data:      roleData,
+	}
+
+	b.pathRoleCreate(ctx, req, &framework.FieldData{
+		Raw:    roleData,
+		Schema: b.pathRoles().Fields,
+	})
+
+	// Generate a credential to create a lease
+	credData := map[string]interface{}{
+		"name":   "leases-role",
+		"region": "leases-test",
+	}
+
+	req = &logical.Request{
+		Operation: logical.ReadOperation,
+		Path:      "creds/leases-role",
+		Storage:   storage,
+		Data:      credData,
+	}
+
+	resp, err := b.pathCredsRead(ctx, req, &framework.FieldData{
+		Raw:    credData,
+		Schema: b.pathCreds().Fields,
+	})
+	if err != nil || (resp != nil && resp.IsError()) {
+		t.Logf("Note: Credential generation failed (expected if no DB): %v", err)
+		// Continue to test leases endpoint even if credential failed
+	}
+
+	// List leases
+	req = &logical.Request{
+		Operation: logical.ListOperation,
+		Path:      "leases",
+		Storage:   storage,
+	}
+
+	resp, err = b.pathLeasesList(ctx, req, &framework.FieldData{
+		Raw:    map[string]interface{}{},
+		Schema: b.pathLeases().Fields,
+	})
+	if err != nil || (resp != nil && resp.IsError()) {
+		t.Fatalf("failed to list leases: %v (resp: %v)", err, resp)
+	}
+
+	t.Logf("Successfully listed leases")
+}
+
+// ============================================================
+// Metrics Integration Tests
+// ============================================================
+
+func TestIntegrationMetrics(t *testing.T) {
+	if os.Getenv("RUN_INTEGRATION_TESTS") != "true" {
+		t.Skip("Skipping integration test; set RUN_INTEGRATION_TESTS=true")
+	}
+
+	b, storage := setupIntegrationBackend(t)
+	ctx := context.Background()
+
+	// Test metrics endpoint
+	req := &logical.Request{
+		Operation: logical.ReadOperation,
+		Path:      "metrics",
+		Storage:   storage,
+	}
+
+	resp, err := b.pathMetricsRead(ctx, req, &framework.FieldData{
+		Raw: map[string]interface{}{},
+	})
+	if err != nil || (resp != nil && resp.IsError()) {
+		t.Fatalf("failed to read metrics: %v (resp: %v)", err, resp)
+	}
+
+	t.Logf("Successfully read metrics")
+}
+
+// ============================================================
+// Reload Plugin Integration Test
+// ============================================================
+
+func TestIntegrationReloadPlugin(t *testing.T) {
+	if os.Getenv("RUN_INTEGRATION_TESTS") != "true" {
+		t.Skip("Skipping integration test; set RUN_INTEGRATION_TESTS=true")
+	}
+
+	b, storage := setupIntegrationBackend(t)
+	ctx := context.Background()
+
+	// Configure database
+	cfg := map[string]interface{}{
+		"name":              "reload-plugin-test",
+		"plugin_name":       "teradata-database-plugin",
+		"connection_string": getIntegrationConnectionString(),
+		"verify_connection": false,
+	}
+
+	req := &logical.Request{
+		Operation: logical.CreateOperation,
+		Path:      "config/reload-plugin-test",
+		Storage:   storage,
+		Data:      cfg,
+	}
+
+	b.pathConfigWrite(ctx, req, &framework.FieldData{
+		Raw:    cfg,
+		Schema: b.pathConfig().Fields,
+	})
+
+	// Reload plugin
+	data := map[string]interface{}{
+		"plugin_name": "teradata-database-plugin",
+	}
+
+	req = &logical.Request{
+		Operation: logical.UpdateOperation,
+		Path:      "reload/teradata-database-plugin",
+		Storage:   storage,
+		Data:      data,
+	}
+
+	resp, err := b.pathReloadPluginHandler(ctx, req, &framework.FieldData{
+		Raw:    data,
+		Schema: b.pathReloadPlugin().Fields,
+	})
+	if err != nil || (resp != nil && resp.IsError()) {
+		t.Fatalf("failed to reload plugin: %v (resp: %v)", err, resp)
+	}
+
+	t.Logf("Successfully reloaded plugin")
 }

@@ -195,7 +195,6 @@ func (c *queryResultCache) evictLRU() {
 func (c *queryResultCache) backgroundCleanup() {
 	ticker := time.NewTicker(c.ttl / 2)
 	defer ticker.Stop()
-	defer close(c.done)
 
 	for {
 		select {
@@ -208,7 +207,12 @@ func (c *queryResultCache) backgroundCleanup() {
 }
 
 func (c *queryResultCache) Close() {
-	close(c.done)
+	select {
+	case <-c.done:
+		return
+	default:
+		close(c.done)
+	}
 }
 
 func (c *queryResultCache) cleanupExpired() {
