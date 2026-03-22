@@ -127,7 +127,7 @@ func (b *Backend) prewarmPools(ctx context.Context) error {
 		}
 
 		dbConfig := &storage.DBConfig{
-			Name:                  cfg.Region,
+			Name:                  cfg.Name,
 			ConnectionString:      cfg.ConnectionString,
 			MinConnections:        cfg.MinConnections,
 			MaxOpenConnections:    cfg.MaxOpenConnections,
@@ -145,7 +145,7 @@ func (b *Backend) prewarmPools(ctx context.Context) error {
 			SSLVersion:            cfg.SSLVersion,
 		}
 
-		name := cfg.Region
+		name := cfg.Name
 		if name == "" {
 			name = "default"
 		}
@@ -240,6 +240,9 @@ func (b *Backend) Shutdown() {
 func (b *Backend) paths() []*framework.Path {
 	return []*framework.Path{
 		b.pathConfig(),
+		b.pathConfigList(),
+		b.pathConfigReset(),
+		b.pathConfigReload(),
 		b.pathConfigV1(),
 		b.pathConfigBackup(),
 		b.pathConfigRestore(),
@@ -269,6 +272,10 @@ func (b *Backend) paths() []*framework.Path {
 		b.pathCleanupExpired(),
 		b.pathLeaseLookup(),
 		b.pathExtendLease(),
+		b.pathStaticRoles(),
+		b.pathStaticRoleList(),
+		b.pathStaticCreds(),
+		b.pathRotateStaticRole(),
 		b.pathHealth(),
 		b.pathReadiness(),
 		b.pathLiveness(),
@@ -454,7 +461,7 @@ func (b *Backend) Revoke(ctx context.Context, leaseID string) error {
 
 	var cfg *models.Config
 	if cred != nil && cred.Region != "" {
-		cfg, err = getConfigByRegion(ctx, b.storage, cred.Region)
+		cfg, err = getConfigByName(ctx, b.storage, cred.Region)
 		if err != nil {
 			span.RecordError(err)
 			return fmt.Errorf("failed to get region config for revocation: %w", err)

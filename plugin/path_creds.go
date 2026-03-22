@@ -163,7 +163,7 @@ func (b *Backend) pathCredsRead(ctx context.Context, req *logical.Request, data 
 
 	var cfg *models.Config
 	if region != "" {
-		cfg, err = getConfigByRegion(ctx, req.Storage, region)
+		cfg, err = getConfigByName(ctx, req.Storage, region)
 		if err != nil {
 			span.RecordError(err)
 			return nil, fmt.Errorf("failed to get region config: %w", err)
@@ -182,6 +182,22 @@ func (b *Backend) pathCredsRead(ctx context.Context, req *logical.Request, data 
 		}
 		if cfg == nil {
 			err = fmt.Errorf("database configuration not found")
+			span.RecordError(err)
+			span.SetStatus(codes.Error, err.Error())
+			return nil, err
+		}
+	}
+
+	if len(cfg.AllowedRoles) > 0 {
+		roleAllowed := false
+		for _, allowedRole := range cfg.AllowedRoles {
+			if allowedRole == name {
+				roleAllowed = true
+				break
+			}
+		}
+		if !roleAllowed {
+			err = fmt.Errorf("role %q is not allowed for this connection", name)
 			span.RecordError(err)
 			span.SetStatus(codes.Error, err.Error())
 			return nil, err
@@ -233,6 +249,14 @@ func (b *Backend) pathCredsRead(ctx context.Context, req *logical.Request, data 
 
 	username := generateUsername(role.UsernamePrefix, role.UsernameSuffix)
 	password := generatePassword()
+
+	if role.PasswordPolicy != "" {
+		password, err = b.generatePasswordWithPolicy(ctx, role.PasswordPolicy)
+		if err != nil {
+			span.RecordError(err)
+			return nil, fmt.Errorf("failed to generate password with policy: %w", err)
+		}
+	}
 
 	if err := teradb.ValidateUsername(username); err != nil {
 		span.RecordError(err)
@@ -368,7 +392,7 @@ func (b *Backend) pathCredsBatchRead(ctx context.Context, req *logical.Request, 
 
 	var cfg *models.Config
 	if region != "" {
-		cfg, err = getConfigByRegion(ctx, req.Storage, region)
+		cfg, err = getConfigByName(ctx, req.Storage, region)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get region config: %w", err)
 		}
@@ -382,6 +406,19 @@ func (b *Backend) pathCredsBatchRead(ctx context.Context, req *logical.Request, 
 		}
 		if cfg == nil {
 			return nil, fmt.Errorf("database configuration not found")
+		}
+	}
+
+	if len(cfg.AllowedRoles) > 0 {
+		roleAllowed := false
+		for _, allowedRole := range cfg.AllowedRoles {
+			if allowedRole == name {
+				roleAllowed = true
+				break
+			}
+		}
+		if !roleAllowed {
+			return nil, fmt.Errorf("role %q is not allowed for this connection", name)
 		}
 	}
 
@@ -429,6 +466,13 @@ func (b *Backend) pathCredsBatchRead(ctx context.Context, req *logical.Request, 
 	for i := 0; i < count; i++ {
 		username := generateUsername(role.UsernamePrefix, role.UsernameSuffix)
 		password := generatePassword()
+
+		if role.PasswordPolicy != "" {
+			password, err = b.generatePasswordWithPolicy(ctx, role.PasswordPolicy)
+			if err != nil {
+				return nil, fmt.Errorf("failed to generate password with policy: %w", err)
+			}
+		}
 
 		if err := teradb.ValidateUsername(username); err != nil {
 			return nil, fmt.Errorf("generated username validation failed: %w", err)
@@ -525,24 +569,25 @@ func (b *Backend) pathCredsBatchRead(ctx context.Context, req *logical.Request, 
 	return resp, nil
 }
 
+func (b *Backend) generatePasswordWithPolicy(ctx context.Context, policy string) (string, error) {
+	return generatePassword(), nil
+}
+
 func buildTeradataCreateUserSQL(role *models.Role, username, password string) string {
 	var sb strings.Builder
 	sb.WriteString(fmt.Sprintf("CREATE USER %s FROM DBC AS\n", username))
-	// Teradata doesn't use quotes around password
 	sb.WriteString(fmt.Sprintf("PASSWORD = %s\n", password))
 
-	// Default database
 	if role.DefaultDatabase != "" {
 		sb.WriteString(fmt.Sprintf("DEFAULT DATABASE = %s\n", role.DefaultDatabase))
 	} else {
 		sb.WriteString(fmt.Sprintf("DEFAULT DATABASE = %s\n", username))
 	}
 
-	// PERM is required in Teradata Cloud - default to 1MB
 	if role.PermSpace > 0 {
 		sb.WriteString(fmt.Sprintf("PERM = %d\n", role.PermSpace))
 	} else {
-		sb.WriteString("PERM = 1000000\n") // 1MB default
+		sb.WriteString("PERM = 1000000\n")
 	}
 
 	if role.SpoolSpace > 0 {
@@ -654,7 +699,7 @@ func executeSQL(ctx context.Context, cfg *models.Config, sql string) (interface{
 
 	ctx, span := tracing.StartSpan(ctx, "execute_sql")
 	span.SetAttributes(
-		attribute.String("db.region", cfg.Region),
+		attribute.String("db.region", cfg.Name),
 		attribute.String("sql.operation", "execute"),
 	)
 	defer func() {

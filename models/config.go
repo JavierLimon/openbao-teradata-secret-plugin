@@ -1,8 +1,18 @@
 package models
 
 type Config struct {
-	Region                   string            `json:"region"`
+	Name                     string            `json:"name"`
+	PluginName               string            `json:"plugin_name"`
+	PluginVersion            string            `json:"plugin_version"`
+	VerifyConnection         bool              `json:"verify_connection"`
+	AllowedRoles             []string          `json:"allowed_roles"`
+	RootRotationStatements   []string          `json:"root_rotation_statements"`
+	PasswordPolicy           string            `json:"password_policy"`
+	ConnectionURL            string            `json:"connection_url"`
 	ConnectionString         string            `json:"connection_string"`
+	Username                 string            `json:"username"`
+	Password                 string            `json:"password,omitempty"`
+	DisableEscaping          bool              `json:"disable_escaping"`
 	MinConnections           int               `json:"min_connections"`
 	MaxOpenConnections       int               `json:"max_open_connections"`
 	MaxIdleConnections       int               `json:"max_idle_connections"`
@@ -11,8 +21,6 @@ type Config struct {
 	SessionTimeout           int               `json:"session_timeout"`
 	MaxConnectionLifetime    int               `json:"max_connection_lifetime"`
 	IdleTimeout              int               `json:"idle_timeout"`
-	Username                 string            `json:"username"`
-	Password                 string            `json:"password,omitempty"`
 	SSLMode                  string            `json:"ssl_mode"`
 	SSLCert                  string            `json:"ssl_cert"`
 	SSLKey                   string            `json:"ssl_key"`
@@ -39,11 +47,14 @@ type Config struct {
 	MinEvictableIdleTime     int               `json:"min_evictable_idle_time"`
 	TimeZone                 string            `json:"timezone"`
 	CharacterSet             string            `json:"character_set"`
+	Version                  int               `json:"version"`
 }
 
 type Role struct {
 	Name                string            `json:"name"`
 	Version             int               `json:"version"`
+	CredentialType      string            `json:"credential_type"`
+	CredentialConfig    map[string]string `json:"credential_config"`
 	DBUser              string            `json:"db_user"`
 	UsernamePrefix      string            `json:"username_prefix"`
 	UsernameSuffix      string            `json:"username_suffix"`
@@ -64,9 +75,11 @@ type Role struct {
 	BatchSize           int               `json:"batch_size"`
 	MaxCredentials      int               `json:"max_credentials"`
 	SessionVariables    map[string]string `json:"session_variables"`
+	AllowedRoles        []string          `json:"allowed_roles"`
+	PasswordPolicy      string            `json:"password_policy"`
 }
 
-const RoleVersion = 3
+const RoleVersion = 4
 
 type Statement struct {
 	Name                string `json:"name"`

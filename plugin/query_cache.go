@@ -255,7 +255,7 @@ var cacheKeyBuilder = &CacheKeyBuilder{}
 func (b *Backend) getCachedConfig(ctx context.Context, storage logical.Storage, region string) (*models.Config, error) {
 	cache := b.getQueryCache()
 	if cache == nil {
-		return getConfigByRegion(ctx, storage, region)
+		return getConfigByName(ctx, storage, region)
 	}
 
 	key := cacheKeyBuilder.ConfigKey(region)
@@ -265,7 +265,7 @@ func (b *Backend) getCachedConfig(ctx context.Context, storage logical.Storage, 
 		}
 	}
 
-	cfg, err := getConfigByRegion(ctx, storage, region)
+	cfg, err := getConfigByName(ctx, storage, region)
 	if err != nil {
 		return nil, err
 	}

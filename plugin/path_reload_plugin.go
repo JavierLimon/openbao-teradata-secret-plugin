@@ -82,7 +82,7 @@ func (b *Backend) pathReloadPluginHandler(ctx context.Context, req *logical.Requ
 		}
 
 		dbConfig := &storage.DBConfig{
-			Name:                  cfg.Region,
+			Name:                  cfg.Name,
 			ConnectionString:      cfg.ConnectionString,
 			MinConnections:        cfg.MinConnections,
 			MaxOpenConnections:    cfg.MaxOpenConnections,
@@ -100,7 +100,7 @@ func (b *Backend) pathReloadPluginHandler(ctx context.Context, req *logical.Requ
 			SSLVersion:            cfg.SSLVersion,
 		}
 
-		name := cfg.Region
+		name := cfg.Name
 		if name == "" {
 			name = "default"
 		}

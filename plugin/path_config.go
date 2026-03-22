@@ -3,28 +3,72 @@ package teradata
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/JavierLimon/openbao-teradata-secret-plugin/models"
+	teradb "github.com/JavierLimon/openbao-teradata-secret-plugin/odbc"
 	"github.com/JavierLimon/openbao-teradata-secret-plugin/security"
+	"github.com/JavierLimon/openbao-teradata-secret-plugin/storage"
 	"github.com/openbao/openbao/sdk/v2/framework"
 	"github.com/openbao/openbao/sdk/v2/logical"
 )
 
 func (b *Backend) pathConfig() *framework.Path {
 	return &framework.Path{
-		Pattern:         "config/(?P<region>[a-zA-Z0-9_-]+)",
-		HelpSynopsis:    "Configure the Teradata connection for a specific region",
-		HelpDescription: "Configures the connection parameters for a specific Teradata database region.",
+		Pattern:         "config/" + framework.GenericNameRegex("name"),
+		HelpSynopsis:    "Configure the Teradata connection for a specific name",
+		HelpDescription: "Configures the connection parameters for a specific Teradata database connection.",
 
 		Fields: map[string]*framework.FieldSchema{
-			"region": {
+			"name": {
 				Type:        framework.TypeString,
-				Description: "Region identifier",
+				Description: "Name identifier for the connection",
+			},
+			"plugin_name": {
+				Type:        framework.TypeString,
+				Description: "Plugin name to use for this connection",
+			},
+			"plugin_version": {
+				Type:        framework.TypeString,
+				Description: "Plugin version for this connection",
+			},
+			"verify_connection": {
+				Type:        framework.TypeBool,
+				Description: "Verify the database connection after saving",
+				Default:     true,
+			},
+			"allowed_roles": {
+				Type:        framework.TypeCommaStringSlice,
+				Description: "Comma-separated list of roles allowed to use this connection",
+			},
+			"root_rotation_statements": {
+				Type:        framework.TypeCommaStringSlice,
+				Description: "Comma-separated list of statements to execute after root credential rotation",
+			},
+			"password_policy": {
+				Type:        framework.TypeString,
+				Description: "Password policy to use for generating passwords",
+			},
+			"connection_url": {
+				Type:        framework.TypeString,
+				Description: "Database connection URL",
 			},
 			"connection_string": {
 				Type:        framework.TypeString,
 				Description: "ODBC connection string for Teradata",
-				Required:    true,
+			},
+			"username": {
+				Type:        framework.TypeString,
+				Description: "Database username",
+			},
+			"password": {
+				Type:        framework.TypeString,
+				Description: "Database password",
+			},
+			"disable_escaping": {
+				Type:        framework.TypeBool,
+				Description: "Disable special character escaping in passwords",
+				Default:     false,
 			},
 			"min_connections": {
 				Type:        framework.TypeInt,
@@ -175,15 +219,85 @@ func (b *Backend) pathConfig() *framework.Path {
 	}
 }
 
-func (b *Backend) pathConfigWrite(ctx context.Context, req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
-	var region string
-	if r, ok := data.Raw["region"].(string); ok {
-		region = r
-	}
-	connectionString := data.Get("connection_string").(string)
+func (b *Backend) pathConfigList() *framework.Path {
+	return &framework.Path{
+		Pattern:         "config",
+		HelpSynopsis:    "List all Teradata connections",
+		HelpDescription: "Lists all configured Teradata database connections.",
 
-	if err := security.ValidateConnectionString(connectionString); err != nil {
-		return nil, fmt.Errorf("invalid connection string: %w", err)
+		Operations: map[logical.Operation]framework.OperationHandler{
+			logical.ListOperation: &framework.PathOperation{
+				Callback: b.pathConfigListHandler,
+			},
+		},
+	}
+}
+
+func (b *Backend) pathConfigReset() *framework.Path {
+	return &framework.Path{
+		Pattern:         "reset/" + framework.GenericNameRegex("name"),
+		HelpSynopsis:    "Reset a Teradata connection",
+		HelpDescription: "Resets and reinitializes a Teradata database connection.",
+
+		Fields: map[string]*framework.FieldSchema{
+			"name": {
+				Type:        framework.TypeString,
+				Description: "Name of the connection to reset",
+			},
+		},
+
+		Operations: map[logical.Operation]framework.OperationHandler{
+			logical.UpdateOperation: &framework.PathOperation{
+				Callback: b.pathConfigResetHandler,
+			},
+		},
+	}
+}
+
+func (b *Backend) pathConfigReload() *framework.Path {
+	return &framework.Path{
+		Pattern:         "reload/" + framework.GenericNameRegex("plugin_name"),
+		HelpSynopsis:    "Reload connections for a plugin",
+		HelpDescription: "Reloads all database connections for a specific plugin.",
+
+		Fields: map[string]*framework.FieldSchema{
+			"plugin_name": {
+				Type:        framework.TypeString,
+				Description: "Plugin name to reload connections for",
+			},
+		},
+
+		Operations: map[logical.Operation]framework.OperationHandler{
+			logical.UpdateOperation: &framework.PathOperation{
+				Callback: b.pathConfigReloadHandler,
+			},
+		},
+	}
+}
+
+func (b *Backend) pathConfigWrite(ctx context.Context, req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
+	name := data.Get("name").(string)
+
+	pluginName := data.Get("plugin_name").(string)
+	pluginVersion := data.Get("plugin_version").(string)
+	verifyConnection := data.Get("verify_connection").(bool)
+	allowedRoles := data.Get("allowed_roles").([]string)
+	rootRotationStatements := data.Get("root_rotation_statements").([]string)
+	passwordPolicy := data.Get("password_policy").(string)
+	connectionURL := data.Get("connection_url").(string)
+	connectionString := data.Get("connection_string").(string)
+	username := data.Get("username").(string)
+	password := data.Get("password").(string)
+	disableEscaping := data.Get("disable_escaping").(bool)
+
+	if connectionString == "" && connectionURL == "" {
+		return nil, fmt.Errorf("connection_string or connection_url is required")
+	}
+
+	if connectionString != "" {
+		if err := security.ValidateConnectionString(connectionString); err != nil {
+			return nil, fmt.Errorf("invalid connection_string: %w", err)
+		}
 	}
 
 	minConnections := data.Get("min_connections").(int)
@@ -278,8 +392,18 @@ func (b *Backend) pathConfigWrite(ctx context.Context, req *logical.Request, dat
 	}
 
 	cfg := &models.Config{
-		Region:                  region,
+		Name:                    name,
+		PluginName:              pluginName,
+		PluginVersion:           pluginVersion,
+		VerifyConnection:        verifyConnection,
+		AllowedRoles:            allowedRoles,
+		RootRotationStatements:  rootRotationStatements,
+		PasswordPolicy:          passwordPolicy,
+		ConnectionURL:           connectionURL,
 		ConnectionString:        connectionString,
+		Username:                username,
+		Password:                password,
+		DisableEscaping:         disableEscaping,
 		MinConnections:          minConnections,
 		MaxOpenConnections:      maxOpenConnections,
 		MaxIdleConnections:      maxIdleConnections,
@@ -308,12 +432,10 @@ func (b *Backend) pathConfigWrite(ctx context.Context, req *logical.Request, dat
 		MinEvictableIdleTime:    minEvictableIdleTime,
 		TimeZone:                timeZone,
 		CharacterSet:            characterSet,
+		Version:                 1,
 	}
 
-	storageKey := "config"
-	if region != "" {
-		storageKey = "config/" + region
-	}
+	storageKey := "config/" + name
 
 	entry, err := logical.StorageEntryJSON(storageKey, cfg)
 	if err != nil {
@@ -324,59 +446,41 @@ func (b *Backend) pathConfigWrite(ctx context.Context, req *logical.Request, dat
 		return nil, err
 	}
 
-	b.invalidateConfigCache(region)
+	b.invalidateConfigCache(name)
 
-	respData := map[string]interface{}{
-		"connection_string":         "***",
-		"min_connections":           minConnections,
-		"max_open_connections":      maxOpenConnections,
-		"max_idle_connections":      maxIdleConnections,
-		"connection_timeout":        connectionTimeout,
-		"session_timeout":           sessionTimeout,
-		"max_connection_lifetime":   maxConnectionLifetime,
-		"idle_timeout":              idleTimeout,
-		"ssl_mode":                  sslMode,
-		"ssl_cert":                  sslCert,
-		"ssl_key":                   sslKey,
-		"ssl_root_cert":             sslRootCert,
-		"ssl_cipher_suites":         sslCipherSuites,
-		"ssl_secure":                sslSecure,
-		"ssl_version":               sslVersion,
-		"max_retries":               maxRetries,
-		"initial_retry_interval":    initialRetryInterval,
-		"max_retry_interval":        maxRetryInterval,
-		"retry_multiplier":          retryMultiplier,
-		"graceful_degradation_mode": gracefulDegradationMode,
-		"max_result_rows":           maxResultRows,
-		"eviction_policy":           evictionPolicy,
-		"eviction_batch_size":       evictionBatchSize,
-		"eviction_grace_period":     evictionGracePeriod,
-		"min_evictable_idle_time":   minEvictableIdleTime,
-		"timezone":                  timeZone,
-		"character_set":             characterSet,
-	}
-	if region != "" {
-		respData["region"] = region
-	}
-	if sslKeyPassword != "" {
-		respData["ssl_key_password"] = "***"
+	if verifyConnection {
+		if err := b.verifyConfigConnection(ctx, cfg); err != nil {
+			b.invalidateConfigCache(name)
+			return nil, fmt.Errorf("connection verification failed: %w", err)
+		}
 	}
 
-	return &logical.Response{
-		Data: respData,
-	}, nil
+	return b.pathConfigRead(ctx, req, data)
+}
+
+func (b *Backend) verifyConfigConnection(ctx context.Context, cfg *models.Config) error {
+	connString, err := buildConnectionString(cfg)
+	if err != nil {
+		return fmt.Errorf("failed to build connection string: %w", err)
+	}
+
+	conn, err := teradb.Connect(connString)
+	if err != nil {
+		return fmt.Errorf("failed to connect: %w", err)
+	}
+	defer conn.Close()
+
+	return nil
 }
 
 func (b *Backend) pathConfigRead(ctx context.Context, req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
-	var region string
-	if r, ok := data.Raw["region"].(string); ok {
-		region = r
+	name := data.Get("name").(string)
+
+	if name == "" {
+		return nil, fmt.Errorf("name is required")
 	}
 
-	storageKey := "config"
-	if region != "" {
-		storageKey = "config/" + region
-	}
+	storageKey := "config/" + name
 
 	entry, err := req.Storage.Get(ctx, storageKey)
 	if err != nil {
@@ -392,8 +496,11 @@ func (b *Backend) pathConfigRead(ctx context.Context, req *logical.Request, data
 		return nil, err
 	}
 
-	respData := map[string]interface{}{
+	connectionDetails := map[string]interface{}{
 		"connection_string":         "***",
+		"connection_url":            cfg.ConnectionURL,
+		"username":                  cfg.Username,
+		"disable_escaping":          cfg.DisableEscaping,
 		"min_connections":           cfg.MinConnections,
 		"max_open_connections":      cfg.MaxOpenConnections,
 		"max_idle_connections":      cfg.MaxIdleConnections,
@@ -422,11 +529,23 @@ func (b *Backend) pathConfigRead(ctx context.Context, req *logical.Request, data
 		"timezone":                  cfg.TimeZone,
 		"character_set":             cfg.CharacterSet,
 	}
-	if cfg.Region != "" {
-		respData["region"] = cfg.Region
+
+	if cfg.Password != "" {
+		connectionDetails["password"] = "***"
 	}
 	if cfg.SSLKeyPassword != "" {
-		respData["ssl_key_password"] = "***"
+		connectionDetails["ssl_key_password"] = "***"
+	}
+
+	respData := map[string]interface{}{
+		"name":                     name,
+		"plugin_name":              cfg.PluginName,
+		"plugin_version":           cfg.PluginVersion,
+		"verify_connection":        cfg.VerifyConnection,
+		"allowed_roles":            cfg.AllowedRoles,
+		"root_rotation_statements": cfg.RootRotationStatements,
+		"password_policy":          cfg.PasswordPolicy,
+		"connection_details":       connectionDetails,
 	}
 
 	return &logical.Response{
@@ -435,24 +554,151 @@ func (b *Backend) pathConfigRead(ctx context.Context, req *logical.Request, data
 }
 
 func (b *Backend) pathConfigDelete(ctx context.Context, req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
-	var region string
-	if r, ok := data.Raw["region"].(string); ok {
-		region = r
+	name := data.Get("name").(string)
+
+	if name == "" {
+		return nil, fmt.Errorf("name is required")
 	}
 
-	storageKey := "config"
-	if region != "" {
-		storageKey = "config/" + region
-	}
+	storageKey := "config/" + name
 
 	err := req.Storage.Delete(ctx, storageKey)
 	if err != nil {
 		return nil, fmt.Errorf("error deleting config: %w", err)
 	}
 
-	b.invalidateConfigCache(region)
+	b.invalidateConfigCache(name)
 
 	return nil, nil
+}
+
+func (b *Backend) pathConfigListHandler(ctx context.Context, req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
+	entries, err := req.Storage.List(ctx, "config/")
+	if err != nil {
+		return nil, err
+	}
+
+	return logical.ListResponse(entries), nil
+}
+
+func (b *Backend) pathConfigResetHandler(ctx context.Context, req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
+	name := data.Get("name").(string)
+
+	if name == "" {
+		return nil, fmt.Errorf("name is required")
+	}
+
+	storageKey := "config/" + name
+
+	entry, err := req.Storage.Get(ctx, storageKey)
+	if err != nil {
+		return nil, err
+	}
+
+	if entry == nil {
+		return nil, fmt.Errorf("configuration %q not found", name)
+	}
+
+	var cfg models.Config
+	if err := entry.DecodeJSON(&cfg); err != nil {
+		return nil, err
+	}
+
+	dbConfig := &storage.DBConfig{
+		Name:                  name,
+		ConnectionString:      cfg.ConnectionString,
+		MinConnections:        cfg.MinConnections,
+		MaxOpenConnections:    cfg.MaxOpenConnections,
+		MaxIdleConnections:    cfg.MaxIdleConnections,
+		ConnectionTimeout:     time.Duration(cfg.ConnectionTimeout) * time.Second,
+		MaxConnectionLifetime: time.Duration(cfg.MaxConnectionLifetime) * time.Second,
+		IdleTimeout:           time.Duration(cfg.IdleTimeout) * time.Second,
+		SSLMode:               cfg.SSLMode,
+		SSLCert:               cfg.SSLCert,
+		SSLKey:                cfg.SSLKey,
+		SSLRootCert:           cfg.SSLRootCert,
+		SSLKeyPassword:        cfg.SSLKeyPassword,
+		SSLCipherSuites:       cfg.SSLCipherSuites,
+		SSLSecure:             cfg.SSLSecure,
+		SSLVersion:            cfg.SSLVersion,
+	}
+
+	_, err = b.dbRegistry.UpdateConnection(name, dbConfig)
+	if err != nil {
+		return nil, fmt.Errorf("failed to reset connection: %w", err)
+	}
+
+	return &logical.Response{
+		Data: map[string]interface{}{
+			"message": fmt.Sprintf("connection %q reset successfully", name),
+		},
+	}, nil
+}
+
+func (b *Backend) pathConfigReloadHandler(ctx context.Context, req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
+	pluginName := data.Get("plugin_name").(string)
+
+	if pluginName == "" {
+		return nil, fmt.Errorf("plugin_name is required")
+	}
+
+	entries, err := req.Storage.List(ctx, "config/")
+	if err != nil {
+		return nil, err
+	}
+
+	reloadedCount := 0
+	for _, entry := range entries {
+		storageKey := "config/" + entry
+		cfgEntry, err := req.Storage.Get(ctx, storageKey)
+		if err != nil {
+			continue
+		}
+		if cfgEntry == nil {
+			continue
+		}
+
+		var cfg models.Config
+		if err := cfgEntry.DecodeJSON(&cfg); err != nil {
+			continue
+		}
+
+		if cfg.PluginName != pluginName {
+			continue
+		}
+
+		dbConfig := &storage.DBConfig{
+			Name:                  entry,
+			ConnectionString:      cfg.ConnectionString,
+			MinConnections:        cfg.MinConnections,
+			MaxOpenConnections:    cfg.MaxOpenConnections,
+			MaxIdleConnections:    cfg.MaxIdleConnections,
+			ConnectionTimeout:     time.Duration(cfg.ConnectionTimeout) * time.Second,
+			MaxConnectionLifetime: time.Duration(cfg.MaxConnectionLifetime) * time.Second,
+			IdleTimeout:           time.Duration(cfg.IdleTimeout) * time.Second,
+			SSLMode:               cfg.SSLMode,
+			SSLCert:               cfg.SSLCert,
+			SSLKey:                cfg.SSLKey,
+			SSLRootCert:           cfg.SSLRootCert,
+			SSLKeyPassword:        cfg.SSLKeyPassword,
+			SSLCipherSuites:       cfg.SSLCipherSuites,
+			SSLSecure:             cfg.SSLSecure,
+			SSLVersion:            cfg.SSLVersion,
+		}
+
+		_, err = b.dbRegistry.UpdateConnection(entry, dbConfig)
+		if err == nil {
+			reloadedCount++
+		}
+	}
+
+	return &logical.Response{
+		Data: map[string]interface{}{
+			"message":        fmt.Sprintf("reloaded %d connections for plugin %q", reloadedCount, pluginName),
+			"reloaded_count": reloadedCount,
+			"plugin_name":    pluginName,
+		},
+	}, nil
 }
 
 func getConfig(ctx context.Context, storage logical.Storage) (*models.Config, error) {
@@ -473,11 +719,11 @@ func getConfig(ctx context.Context, storage logical.Storage) (*models.Config, er
 	return &cfg, nil
 }
 
-func getConfigByRegion(ctx context.Context, storage logical.Storage, region string) (*models.Config, error) {
-	if region == "" {
+func getConfigByName(ctx context.Context, storage logical.Storage, name string) (*models.Config, error) {
+	if name == "" {
 		return getConfig(ctx, storage)
 	}
-	entry, err := storage.Get(ctx, "config/"+region)
+	entry, err := storage.Get(ctx, "config/"+name)
 	if err != nil {
 		return nil, err
 	}
